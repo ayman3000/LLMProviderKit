@@ -24,10 +24,17 @@ public struct GeminiProvider: LLMProvider {
         }
         components.path = (components.path as NSString).appendingPathComponent(path)
 
+        var queryItems: [URLQueryItem] = []
         if let apiKey = configuration.apiKey {
-            var query = components.queryItems ?? []
-            query.append(URLQueryItem(name: "key", value: apiKey))
-            components.queryItems = query
+            queryItems.append(URLQueryItem(name: "key", value: apiKey))
+        }
+        // Gemini's streaming endpoint returns newline-delimited JSON by default.
+        // Request SSE format (data: {...}\n\n) so our line-based parser works cleanly.
+        if stream {
+            queryItems.append(URLQueryItem(name: "alt", value: "sse"))
+        }
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
         }
 
         guard let url = components.url else {
@@ -56,8 +63,15 @@ public struct GeminiProvider: LLMProvider {
     }
 
     public func parseStreamLine(_ line: String, request: LLMRequest) throws -> [LLMStreamChunk] {
-        // Gemini streams newline-delimited JSON objects.
-        guard let data = line.data(using: .utf8), !data.isEmpty else {
+        // Gemini SSE streams use "data: {...}" format.
+        var jsonLine = line
+        if jsonLine.hasPrefix("data: ") {
+            jsonLine = String(jsonLine.dropFirst(6))
+        } else if jsonLine.hasPrefix("data:") {
+            jsonLine = String(jsonLine.dropFirst(5))
+        }
+
+        guard let data = jsonLine.data(using: .utf8), !data.isEmpty else {
             return []
         }
 
@@ -291,10 +305,9 @@ private struct GeminiModelsResponse: Decodable {
 /// Well-known Gemini model names. These are convenience constants only;
 /// pass any string to `LLMRequest.model` for models not listed here.
 public enum GeminiModel {
-    public static let flash = "gemini-2.0-flash"
-    public static let flashLite = "gemini-2.0-flash-lite"
-    public static let pro = "gemini-2.0-pro"
-    public static let thinking = "gemini-2.0-flash-thinking-exp"
+    public static let flash = "gemini-2.5-flash"
+    public static let flashLite = "gemini-2.5-flash-lite"
+    public static let pro = "gemini-2.5-pro"
     public static let flash15 = "gemini-1.5-flash"
     public static let pro15 = "gemini-1.5-pro"
 }

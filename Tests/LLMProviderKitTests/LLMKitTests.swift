@@ -104,7 +104,7 @@ struct ProviderTests {
     @Test func geminiStreamingLine() async throws {
         let provider = GeminiProvider(configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.0-flash"))
         let line = """
-        {"candidates":[{"content":{"parts":[{"text":" there"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":2,"totalTokenCount":10}}
+        data: {"candidates":[{"content":{"parts":[{"text":" there"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":2,"totalTokenCount":10}}
         """
         let request = LLMRequest(model: "gemini-2.0-flash", messages: [.user("Hi")])
         let chunks = try provider.parseStreamLine(line, request: request)
