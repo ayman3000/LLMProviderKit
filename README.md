@@ -67,9 +67,8 @@ The easiest way to use `LLMProviderKit` in an Xcode project is with **Swift Pack
 
 1. Open your project in Xcode.
 2. Select the project file in the navigator, then the **Package Dependencies** tab.
-3. Tap **+** and enter the package URL or local path:
-   - Local: `file:///Users/aymanmoustafa/projects/my_repos/packages/swift/LLMProviderKit`
-   - Remote (when published): `https://github.com/yourusername/LLMProviderKit`
+3. Tap **+** and enter the package URL:
+   - `https://github.com/ayman3000/LLMProviderKit`
 4. Select the version rule or branch.
 5. Add the products you need to your app target:
    - `LLMProviderKit` (always required)
