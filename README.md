@@ -224,6 +224,45 @@ struct ModelPickerView: View {
 
 > For `LLMModelInfo` to work in `ForEach`, it already conforms to `Identifiable`.
 
+### App Sandbox & network entitlements
+
+macOS apps with **App Sandbox** enabled (the default for new Xcode projects) will **block all outgoing network connections**, including `localhost`. This means `OllamaProvider.availableModels()` and any `complete()` / `stream()` call will fail with:
+
+```
+A server with the specified hostname could not be found.
+```
+
+To fix this, add the following entitlements to your app's `.entitlements` file:
+
+```xml
+<key>com.apple.security.network.client</key>
+<true/>
+```
+
+If your app also needs to serve incoming connections (e.g. for callbacks), add:
+
+```xml
+<key>com.apple.security.network.server</key>
+<true/>
+```
+
+For **development only**, you can disable App Sandbox entirely:
+
+```xml
+<key>com.apple.security.app-sandbox</key>
+<false/>
+```
+
+> ⚠️ Disabling App Sandbox is fine for development but should not be shipped to production. For App Store distribution, keep the sandbox enabled and only add the `network.client` entitlement.
+
+To add the entitlements file in Xcode:
+
+1. Select your app target.
+2. Go to **Signing & Capabilities**.
+3. Click **+ Capability** and add **App Sandbox** (if not already present).
+4. Check **Outgoing Connections (Client)**.
+5. If you need incoming connections, also check **Incoming Connections (Server)**.
+
 ---
 
 ## Usage
