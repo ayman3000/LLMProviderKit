@@ -273,11 +273,11 @@ To add the entitlements file in Xcode:
 import LLMProviderKitOllama
 
 // Default localhost
-let ollama = OllamaProvider(configuration: .local())
+let ollama = OllamaProvider(configuration: OllamaProvider.local())
 
 // Custom host (e.g. LAN server or Docker)
 let remote = OllamaProvider(
-    configuration: .local(baseURL: URL(string: "http://192.168.1.50:11434")!)
+    configuration: OllamaProvider.local(baseURL: URL(string: "http://192.168.1.50:11434")!)
 )
 
 // Auto-resolve: leave request model empty, provider fetches /api/tags and uses first model.
@@ -285,6 +285,8 @@ let request = LLMRequest(model: "", messages: [.user("Hi")])
 let response = try await ollama.complete(request)
 print("Resolved model: \(response.request.model)")
 ```
+
+> **⚠️ App Sandbox requirement:** If your macOS app uses **App Sandbox** (enabled by default in new Xcode projects), you must add the `com.apple.security.network.client` entitlement to your `.entitlements` file, otherwise all network calls — including `localhost:11434` — will silently fail with `"A server with the specified hostname could not be found."` See the [App Sandbox & network entitlements](#app-sandbox--network-entitlements) section below for full instructions.
 
 ### 1. Direct provider
 
