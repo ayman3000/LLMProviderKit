@@ -46,7 +46,11 @@ public struct GeminiProvider: LLMProvider {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let contents = request.messages.map { message -> GeminiContent in
-            GeminiContent(role: Self.geminiRole(for: message.role), parts: [.text(message.content)])
+            var parts: [GeminiPart] = [.text(message.content)]
+            for img in message.images {
+                parts.append(.inlineData(mimeType: img.mimeType, data: img.base64))
+            }
+            return GeminiContent(role: Self.geminiRole(for: message.role), parts: parts)
         }
 
         let body = GeminiRequest(
@@ -220,18 +224,27 @@ private struct GeminiContent: Encodable {
 
 private enum GeminiPart: Encodable {
     case text(String)
+    case inlineData(mimeType: String, data: String)
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .text(let value):
             try container.encode(value, forKey: .text)
+        case .inlineData(let mimeType, let data):
+            try container.encode(GeminiInlineData(mimeType: mimeType, data: data), forKey: .inlineData)
         }
     }
 
     enum CodingKeys: String, CodingKey {
         case text
+        case inlineData = "inlineData"
     }
+}
+
+private struct GeminiInlineData: Encodable {
+    let mimeType: String
+    let data: String
 }
 
 private struct GeminiGenerationConfig: Encodable {

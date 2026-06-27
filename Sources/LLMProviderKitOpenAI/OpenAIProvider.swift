@@ -29,7 +29,9 @@ public struct OpenAIProvider: LLMProvider {
 
         let body = OpenAIChatRequest(
             model: request.model,
-            messages: request.messages.map { OpenAIMessage(role: $0.role, content: $0.content) },
+            messages: request.messages.map { msg in
+                OpenAIMessage(role: msg.role, content: msg.content, images: msg.images)
+            },
             temperature: request.temperature,
             topP: request.topP,
             maxTokens: request.maxTokens,
@@ -150,7 +152,72 @@ private struct OpenAIChatRequest: Encodable {
 
 private struct OpenAIMessage: Encodable {
     let role: LLMMessageRole
-    let content: String
+    let content: OpenAIContent
+    let images: [LLMImage]
+
+    init(role: LLMMessageRole, content: String, images: [LLMImage]) {
+        self.role = role
+        self.images = images
+        // When there are images, content becomes an array of parts.
+        // Otherwise, keep it as a plain string for backward compatibility.
+        if images.isEmpty {
+            self.content = .text(content)
+        } else {
+            var parts: [OpenAIContentPart] = [.text(content)]
+            for img in images {
+                parts.append(.imageURL("data:\(img.mimeType);base64,\(img.base64)"))
+            }
+            self.content = .parts(parts)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case role
+        case content
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(role, forKey: .role)
+        switch content {
+        case .text(let str):
+            try container.encode(str, forKey: .content)
+        case .parts(let parts):
+            try container.encode(parts, forKey: .content)
+        }
+    }
+}
+
+private enum OpenAIContent {
+    case text(String)
+    case parts([OpenAIContentPart])
+}
+
+private enum OpenAIContentPart: Encodable {
+    case text(String)
+    case imageURL(String) // data:<mime>;base64,<b64>
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .text(let text):
+            try container.encode("text", forKey: .type)
+            try container.encode(text, forKey: .text)
+        case .imageURL(let url):
+            try container.encode("image_url", forKey: .type)
+            try container.encode(OpenAIImageURL(url: url), forKey: .imageURL)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case text
+        case imageURL = "image_url"
+    }
+}
+
+private struct OpenAIImageURL: Encodable {
+    let url: String
 }
 
 private struct OpenAIChatResponse: Decodable {

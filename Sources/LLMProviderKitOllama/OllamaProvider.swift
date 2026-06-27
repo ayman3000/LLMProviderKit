@@ -25,7 +25,13 @@ public struct OllamaProvider: LLMProvider {
 
         let body = OllamaChatRequest(
             model: request.model,
-            messages: request.messages.map { OllamaMessage(role: $0.role, content: $0.content) },
+            messages: request.messages.map { msg in
+                OllamaMessage(
+                    role: msg.role,
+                    content: msg.content,
+                    images: msg.images.isEmpty ? nil : msg.images.map(\.base64)
+                )
+            },
             stream: stream,
             options: OllamaOptions(
                 temperature: request.temperature,
@@ -133,6 +139,29 @@ private struct OllamaChatRequest: Encodable {
 private struct OllamaMessage: Encodable {
     let role: LLMMessageRole
     let content: String
+    let images: [String]?
+
+    init(role: LLMMessageRole, content: String, images: [String]? = nil) {
+        self.role = role
+        self.content = content
+        self.images = images
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case role
+        case content
+        case images
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(role, forKey: .role)
+        try container.encode(content, forKey: .content)
+        // Only emit images when non-nil (keeps text-only requests unchanged).
+        if let images {
+            try container.encode(images, forKey: .images)
+        }
+    }
 }
 
 private struct OllamaOptions: Encodable {

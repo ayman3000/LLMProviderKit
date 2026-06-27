@@ -36,7 +36,8 @@ public struct AnthropicProvider: LLMProvider {
             messages: request.messages.map { msg in
                 AnthropicMessage(
                     role: Self.anthropicRole(for: msg.role),
-                    content: msg.content
+                    content: msg.content,
+                    images: msg.images
                 )
             },
             system: request.messages.first(where: { $0.role == .system })?.content,
@@ -172,7 +173,76 @@ private struct AnthropicRequest: Encodable {
 
 private struct AnthropicMessage: Encodable {
     let role: String
-    let content: String
+    let content: AnthropicContent
+
+    init(role: String, content: String, images: [LLMImage]) {
+        self.role = role
+        if images.isEmpty {
+            self.content = .text(content)
+        } else {
+            var blocks: [AnthropicContentBlock] = [.text(content)]
+            for img in images {
+                blocks.append(.image(mediaType: img.mimeType, data: img.base64))
+            }
+            self.content = .blocks(blocks)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case role
+        case content
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(role, forKey: .role)
+        switch content {
+        case .text(let str):
+            try container.encode(str, forKey: .content)
+        case .blocks(let blocks):
+            try container.encode(blocks, forKey: .content)
+        }
+    }
+}
+
+private enum AnthropicContent {
+    case text(String)
+    case blocks([AnthropicContentBlock])
+}
+
+private enum AnthropicContentBlock: Encodable {
+    case text(String)
+    case image(mediaType: String, data: String)
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .text(let text):
+            try container.encode("text", forKey: .type)
+            try container.encode(text, forKey: .text)
+        case .image(let mediaType, let data):
+            try container.encode("image", forKey: .type)
+            try container.encode(AnthropicImageSource(mediaType: mediaType, data: data), forKey: .source)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case text
+        case source
+    }
+}
+
+private struct AnthropicImageSource: Encodable {
+    let type: String = "base64"
+    let mediaType: String
+    let data: String
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case mediaType = "media_type"
+        case data
+    }
 }
 
 private struct AnthropicResponse: Decodable {

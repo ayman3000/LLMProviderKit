@@ -39,8 +39,8 @@ struct ProviderTests {
         let chunks = try provider.parseStreamLine(line, request: request)
 
         #expect(chunks.count == 2)
-        #expect(chunks[0] == .text(" world"))
-        #expect(chunks[1] == .finish(reason: .stop, usage: LLMUsage(promptTokens: 10, completionTokens: 3, totalTokens: 13)))
+        #expect(chunksEqual(chunks[0], .text(" world")))
+        #expect(chunksEqual(chunks[1], .finish(reason: .stop, usage: LLMUsage(promptTokens: 10, completionTokens: 3, totalTokens: 13))))
     }
 
     // MARK: - OpenAI
@@ -74,8 +74,8 @@ struct ProviderTests {
         let chunks = try provider.parseStreamLine(line, request: request)
 
         #expect(chunks.count == 2)
-        #expect(chunks[0] == .text("!"))
-        #expect(chunks[1] == .finish(reason: .stop, usage: nil))
+        #expect(chunksEqual(chunks[0], .text("!")))
+        #expect(chunksEqual(chunks[1], .finish(reason: .stop, usage: nil)))
     }
 
     // MARK: - Gemini
@@ -110,8 +110,8 @@ struct ProviderTests {
         let chunks = try provider.parseStreamLine(line, request: request)
 
         #expect(chunks.count == 2)
-        #expect(chunks[0] == .text(" there"))
-        #expect(chunks[1] == .finish(reason: .stop, usage: LLMUsage(promptTokens: 8, completionTokens: 2, totalTokens: 10)))
+        #expect(chunksEqual(chunks[0], .text(" there")))
+        #expect(chunksEqual(chunks[1], .finish(reason: .stop, usage: LLMUsage(promptTokens: 8, completionTokens: 2, totalTokens: 10))))
     }
 
     // MARK: - Anthropic
@@ -155,9 +155,9 @@ struct ProviderTests {
         }
 
         #expect(chunks.count == 3)
-        #expect(chunks[0] == .text("Hello"))
-        #expect(chunks[1] == .text(" Claude"))
-        #expect(chunks[2] == .finish(reason: .stop, usage: LLMUsage(promptTokens: 12, completionTokens: 5, totalTokens: 17)))
+        #expect(chunksEqual(chunks[0], .text("Hello")))
+        #expect(chunksEqual(chunks[1], .text(" Claude")))
+        #expect(chunksEqual(chunks[2], .finish(reason: .stop, usage: LLMUsage(promptTokens: 12, completionTokens: 5, totalTokens: 17))))
     }
 
     // MARK: - Model registry
@@ -225,19 +225,105 @@ struct ProviderTests {
     }
 }
 
-// MARK: - LLMStreamChunk Equatable conformance for tests
+// MARK: - LLMStreamChunk comparison helper for tests
 
-extension LLMStreamChunk: Equatable {
-    public static func == (lhs: LLMStreamChunk, rhs: LLMStreamChunk) -> Bool {
-        switch (lhs, rhs) {
-        case (.text(let a), .text(let b)):
-            return a == b
-        case (.finish(let r1, let u1), .finish(let r2, let u2)):
-            return r1 == r2 && u1 == u2
-        case (.error, .error):
-            return true
-        default:
-            return false
-        }
+func chunksEqual(_ lhs: LLMStreamChunk, _ rhs: LLMStreamChunk) -> Bool {
+    switch (lhs, rhs) {
+    case (.text(let a), .text(let b)):
+        return a == b
+    case (.finish(let r1, let u1), .finish(let r2, let u2)):
+        return r1 == r2 && u1 == u2
+    case (.error, .error):
+        return true
+    default:
+        return false
+    }
+}
+
+extension ProviderTests {
+    // MARK: - Image encoding tests
+
+    private func makeImageRequest(provider: any LLMProvider, model: String) throws -> Data {
+        let pixel = Data([0x89, 0x50, 0x4E, 0x47]) // fake PNG header
+        let request = LLMRequest(
+            model: model,
+            messages: [
+                .user("What's in this image?", images: [LLMImage(data: pixel, mimeType: "image/png")])
+            ]
+        )
+        let urlRequest = try provider.prepareRequest(request, stream: false)
+        return urlRequest.httpBody ?? Data()
+    }
+
+    @Test func ollamaImageEncoding() async throws {
+        let provider = OllamaProvider(configuration: OllamaProvider.local(model: "llama3.2"))
+        let body = try makeImageRequest(provider: provider, model: "llama3.2")
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try #require(json["messages"] as? [[String: Any]])
+        let firstMsg = try #require(messages.first)
+        let images = try #require(firstMsg["images"] as? [String])
+        #expect(images.count == 1)
+        let pixel = Data([0x89, 0x50, 0x4E, 0x47])
+        #expect(images.first == pixel.base64EncodedString())
+        // Content should still be a plain string.
+        #expect(firstMsg["content"] is String)
+    }
+
+    @Test func openAIImageEncoding() async throws {
+        let provider = OpenAIProvider(configuration: OpenAIProvider.openAI(apiKey: "test", model: "gpt-4o"))
+        let body = try makeImageRequest(provider: provider, model: "gpt-4o")
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try #require(json["messages"] as? [[String: Any]])
+        let firstMsg = try #require(messages.first)
+        // Content should be an array of parts.
+        let parts = try #require(firstMsg["content"] as? [[String: Any]])
+        #expect(parts.count == 2)
+        #expect(parts[0]["type"] as? String == "text")
+        #expect(parts[1]["type"] as? String == "image_url")
+        let imageURL = try #require(parts[1]["image_url"] as? [String: Any])
+        let url = try #require(imageURL["url"] as? String)
+        #expect(url.hasPrefix("data:image/png;base64,"))
+    }
+
+    @Test func anthropicImageEncoding() async throws {
+        let provider = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "test", model: "claude-3-5-sonnet-20241022"))
+        let body = try makeImageRequest(provider: provider, model: "claude-3-5-sonnet-20241022")
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try #require(json["messages"] as? [[String: Any]])
+        let firstMsg = try #require(messages.first)
+        // Content should be an array of blocks.
+        let blocks = try #require(firstMsg["content"] as? [[String: Any]])
+        #expect(blocks.count == 2)
+        #expect(blocks[0]["type"] as? String == "text")
+        #expect(blocks[1]["type"] as? String == "image")
+        let source = try #require(blocks[1]["source"] as? [String: Any])
+        #expect(source["type"] as? String == "base64")
+        #expect(source["media_type"] as? String == "image/png")
+    }
+
+    @Test func geminiImageEncoding() async throws {
+        let provider = GeminiProvider(configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash"))
+        let body = try makeImageRequest(provider: provider, model: "gemini-2.5-flash")
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let contents = try #require(json["contents"] as? [[String: Any]])
+        let firstContent = try #require(contents.first)
+        let parts = try #require(firstContent["parts"] as? [[String: Any]])
+        #expect(parts.count == 2)
+        #expect(parts[0]["text"] != nil)
+        let inlineData = try #require(parts[1]["inlineData"] as? [String: Any])
+        #expect(inlineData["mimeType"] as? String == "image/png")
+    }
+
+    @Test func textOnlyRequestsUnchanged() async throws {
+        // Verify that text-only messages don't emit image fields.
+        let ollama = OllamaProvider(configuration: OllamaProvider.local(model: "llama3.2"))
+        let request = LLMRequest(model: "llama3.2", messages: [.user("Hi")])
+        let urlRequest = try ollama.prepareRequest(request, stream: false)
+        let body = urlRequest.httpBody ?? Data()
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try #require(json["messages"] as? [[String: Any]])
+        let firstMsg = try #require(messages.first)
+        #expect(firstMsg["images"] == nil)
+        #expect(firstMsg["content"] is String)
     }
 }

@@ -15,10 +15,12 @@ public enum LLMMessageRole: String, Sendable, Codable {
 public struct LLMMessage: Sendable, Equatable {
     public let role: LLMMessageRole
     public let content: String
+    public var images: [LLMImage]
 
-    public init(role: LLMMessageRole, content: String) {
+    public init(role: LLMMessageRole, content: String, images: [LLMImage] = []) {
         self.role = role
         self.content = content
+        self.images = images
     }
 
     public static func system(_ content: String) -> Self {
@@ -29,8 +31,34 @@ public struct LLMMessage: Sendable, Equatable {
         LLMMessage(role: .user, content: content)
     }
 
+    public static func user(_ content: String, images: [LLMImage]) -> Self {
+        LLMMessage(role: .user, content: content, images: images)
+    }
+
     public static func assistant(_ content: String) -> Self {
         LLMMessage(role: .assistant, content: content)
+    }
+}
+
+/// An image payload attached to a message for vision-capable models.
+///
+/// Stores raw bytes and a MIME type. Providers encode this as base64
+/// in their provider-specific format. Does **not** import UIKit/AppKit.
+public struct LLMImage: Sendable, Equatable, Codable {
+    /// Raw image bytes (PNG, JPEG, etc.).
+    public let data: Data
+
+    /// MIME type, e.g. `"image/png"`, `"image/jpeg"`.
+    public let mimeType: String
+
+    public init(data: Data, mimeType: String = "image/png") {
+        self.data = data
+        self.mimeType = mimeType
+    }
+
+    /// Base64-encoded string of the raw bytes (no data: prefix).
+    public var base64: String {
+        data.base64EncodedString()
     }
 }
 
@@ -148,6 +176,7 @@ extension LLMMessage: Codable {
     enum CodingKeys: String, CodingKey {
         case role
         case content
+        case images
     }
 }
 
