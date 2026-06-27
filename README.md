@@ -436,6 +436,49 @@ Merge strategies:
 - `.append` — keep existing models, add only new IDs.
 - `.merge` — overwrite with fetched models, preserving any existing models for IDs not returned by the provider.
 
+### 8. Multimodal image input
+
+LLMProviderKit supports sending images to vision-capable models. Images are
+attached to `LLMMessage` as `LLMImage` values — raw `Data` + a MIME type.
+No UIKit or AppKit import is required.
+
+```swift
+import LLMProviderKit
+import LLMProviderKitOllama
+
+// Load image data (e.g. from a file or NSImage/UIImage representation)
+let imageData = Data(contentsOf: URL(fileURLWithPath: "/path/to/photo.png"))!
+
+let request = LLMRequest(
+    model: "llama3.2-vision",
+    messages: [
+        .user("What's in this image?", images: [
+            LLMImage(data: imageData, mimeType: "image/png")
+        ])
+    ]
+)
+
+let ollama = OllamaProvider(configuration: OllamaProvider.local())
+let response = try await ollama.complete(request)
+print(response.text)
+```
+
+Each provider encodes images in its native format:
+
+| Provider | Encoding |
+|---|---|
+| **Ollama** | `"images": ["<base64>"]` in the message object |
+| **OpenAI** | `content` becomes `[{type:"text",...}, {type:"image_url",image_url:{url:"data:<mime>;base64,<b64>"}}]` |
+| **Anthropic** | `content` becomes `[{type:"text",...}, {type:"image",source:{type:"base64",media_type":"<mime>","data":"<b64>"}}]` |
+| **Gemini** | `parts` includes `{inlineData:{mimeType:"<mime>",data:"<b64>"}}` |
+
+Text-only requests are **completely unchanged** — image fields are only emitted
+when `message.images` is non-empty.
+
+> Images are only valid for vision-capable models (e.g. `gpt-4o`, `llama3.2-vision`,
+> `gemini-2.5-flash`, `claude-3-5-sonnet`). If the model doesn't support images,
+> the provider will return its standard HTTP error.
+
 ---
 
 ## How LLMProviderKit compares
@@ -451,6 +494,7 @@ There are other multi-provider LLM packages for Swift. Here is how this one diff
 | Native Gemini API | ✅ | ✅ | ❌ | ? |
 | Offline model registry + curated lists | ✅ | ❌ | ❌ | ❌ |
 | Auto-resolve first Ollama model | ✅ | ❌ | ❌ | ❌ |
+| Multimodal image input | ✅ | ? | ? | ✅ |
 | macOS 13 / iOS 16 support | ✅ | iOS 15+ | ? | iOS 17+ |
 | Tools / structured outputs | ❌ planned | ✅ | ? | ✅ |
 
@@ -560,7 +604,7 @@ cd LLMProviderKit
 swift test
 ```
 
-Tests cover parsing and streaming logic for all three providers without making real network calls.
+Tests cover parsing, streaming logic, model registry, and image encoding for all four providers without making real network calls.
 
 ---
 
