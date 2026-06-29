@@ -151,7 +151,8 @@ let package = Package(
 Or add it in Xcode via **File ▸ Add Package Dependencies** → `https://github.com/ayman3000/LLMProviderKit`
 
 > Only import the provider products your app actually uses to keep binary size small.
-> For SwiftUI examples, provider picker, model picker, and App Sandbox setup, see [docs/xcode.md](docs/xcode.md).
+
+> **⚠️ App Sandbox:** If your macOS app uses **App Sandbox** (enabled by default in new Xcode projects), add the `com.apple.security.network.client` entitlement to your `.entitlements` file — otherwise all network calls, including `localhost:11434`, will silently fail.
 
 ---
 
