@@ -36,25 +36,39 @@ Currently supported providers:
 - **Google Gemini** (`LLMProviderKitGemini`)
 - **Anthropic** (`LLMProviderKitAnthropic`)
 
-Designed to make adding **xAI**, **DeepSeek**, **OpenRouter**, or any other provider a matter of conforming to one protocol.
-
-> **Building agents?** See [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit) — it adds tools, memory, planning, sessions, and a ReAct loop on top of LLMProviderKit.
+> **LLMProviderKit talks to models. [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit) lets models act** — it adds tools, memory, planning, sessions, and a ReAct loop on top of LLMProviderKit.
 
 ---
 
 ## Table of Contents
 
+- [Why LLMProviderKit?](#why-llmproviderkit)
 - [Who is this for?](#who-is-this-for)
 - [Features](#features)
 - [Design](#design)
 - [Installation](#installation)
-- [Xcode Integration](#xcode-integration)
 - [Usage](#usage)
 - [Design Principles](#design-principles)
 - [Adding a Provider](#adding-a-provider)
 - [Testing](#testing)
 - [Support](#support)
 - [License](#license)
+
+---
+
+## Why LLMProviderKit?
+
+Every provider has a different API, streaming format, auth style, tool format, and vision format.
+
+LLMProviderKit hides that behind one Swift protocol while still using each provider's native API — not an OpenAI-compat shim.
+
+| Without LLMProviderKit | With LLMProviderKit |
+|---|---|
+| Different request/response shapes per provider | One `LLMRequest` → one `LLMResponse` |
+| Different streaming formats (SSE vs chunked) | One `AsyncThrowingStream<LLMStreamChunk>` |
+| Different tool-call wire formats | One `LLMToolDefinition` → one `LLMToolCall` |
+| Different image encoding per provider | One `LLMImage` → native per-provider encoding |
+| Rewrite your app when switching providers | Change one line: `provider = …` |
 
 ---
 
@@ -71,20 +85,6 @@ LLMProviderKit is for Swift developers who need:
 - **A lightweight networking layer** — Foundation only, zero external dependencies
 
 If you just need to talk to an LLM from Swift — without rewriting your code when you switch providers — LLMProviderKit is built for you.
-
----
-
-## Design
-
-| Layer | Responsibility |
-|-------|----------------|
-| `LLMProviderKit` | Provider-agnostic models (`LLMRequest`, `LLMResponse`, `LLMMessage`, `LLMStreamChunk`), the `LLMProvider` protocol, and the `LLMService` facade. |
-| `LLMProviderKitOllama` | Ollama `api/chat` implementation. |
-| `LLMProviderKitOpenAI` | OpenAI `/chat/completions` implementation. Also works with any OpenAI-compatible endpoint. |
-| `LLMProviderKitGemini` | Gemini `generateContent` / `streamGenerateContent` implementation. |
-| `LLMProviderKitAnthropic` | Anthropic Messages API implementation with SSE streaming. |
-
-No external dependencies. Uses `Foundation.URLSession` only.
 
 ---
 
@@ -106,6 +106,20 @@ No external dependencies. Uses `Foundation.URLSession` only.
 
 ---
 
+## Design
+
+| Layer | Responsibility |
+|-------|----------------|
+| `LLMProviderKit` | Provider-agnostic models (`LLMRequest`, `LLMResponse`, `LLMMessage`, `LLMStreamChunk`), the `LLMProvider` protocol, and the `LLMService` facade. |
+| `LLMProviderKitOllama` | Ollama `api/chat` implementation. |
+| `LLMProviderKitOpenAI` | OpenAI `/chat/completions` implementation. Also works with any OpenAI-compatible endpoint. |
+| `LLMProviderKitGemini` | Gemini `generateContent` / `streamGenerateContent` implementation. |
+| `LLMProviderKitAnthropic` | Anthropic Messages API implementation with SSE streaming. |
+
+No external dependencies. Uses `Foundation.URLSession` only.
+
+---
+
 ## Installation
 
 Add the package to your `Package.swift`:
@@ -117,7 +131,7 @@ import PackageDescription
 let package = Package(
     name: "MyApp",
     dependencies: [
-        .package(path: "path/to/LLMProviderKit")
+        .package(url: "https://github.com/ayman3000/LLMProviderKit.git", from: "0.1.0-alpha.1")
     ],
     targets: [
         .executableTarget(
@@ -134,213 +148,10 @@ let package = Package(
 )
 ```
 
-Or add it in Xcode via **File ▸ Add Package Dependencies**.
-
----
-
-## Xcode Integration
-
-The easiest way to use `LLMProviderKit` in an Xcode project is with **Swift Package Manager**.
-
-### Add the package
-
-1. Open your project in Xcode.
-2. Select the project file in the navigator, then the **Package Dependencies** tab.
-3. Tap **+** and enter the package URL:
-   - `https://github.com/ayman3000/LLMProviderKit`
-4. Select the version rule or branch.
-5. Add the products you need to your app target:
-   - `LLMProviderKit` (always required)
-   - `LLMProviderKitOllama`
-   - `LLMProviderKitOpenAI`
-   - `LLMProviderKitGemini`
-   - `LLMProviderKitAnthropic`
+Or add it in Xcode via **File ▸ Add Package Dependencies** → `https://github.com/ayman3000/LLMProviderKit`
 
 > Only import the provider products your app actually uses to keep binary size small.
-
-### Link products to your target
-
-After adding the package:
-
-1. Select your app target.
-2. Go to **Build Phases ▸ Link Binary With Libraries**.
-3. Add the `LLMProviderKit` and provider libraries you imported.
-
-### Practical SwiftUI example
-
-```swift
-import SwiftUI
-import LLMProviderKit
-import LLMProviderKitOllama
-import LLMProviderKitOpenAI
-
-@main
-struct MyAIApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ChatView()
-        }
-    }
-}
-
-@Observable
-final class ChatModel {
-    var messages: [String] = []
-    var input: String = ""
-    var isThinking = false
-
-    private let ollama = OllamaProvider(configuration: .local())
-    private let openAI = OpenAIProvider(configuration: .openAI(apiKey: "sk-..."))
-
-    func send() async {
-        let text = input
-        input = ""
-        messages.append("You: \(text)")
-        isThinking = true
-
-        let request = LLMRequest(
-            model: "",
-            messages: [
-                .system("You are a helpful assistant."),
-                .user(text)
-            ]
-        )
-
-        do {
-            let response = try await ollama.complete(request)
-            messages.append("Ollama: \(response.text)")
-        } catch {
-            messages.append("Error: \(error.localizedDescription)")
-        }
-
-        isThinking = false
-    }
-}
-
-struct ChatView: View {
-    @State private var model = ChatModel()
-
-    var body: some View {
-        VStack {
-            List(model.messages, id: \.self) { message in
-                Text(message)
-            }
-
-            HStack {
-                TextField("Message", text: $model.input)
-                    .textFieldStyle(.roundedBorder)
-                Button("Send") {
-                    Task { await model.send() }
-                }
-                .disabled(model.isThinking)
-            }
-            .padding()
-        }
-    }
-}
-```
-
-### Switching providers from a picker
-
-```swift
-import SwiftUI
-import LLMProviderKit
-import LLMProviderKitOllama
-import LLMProviderKitOpenAI
-import LLMProviderKitGemini
-import LLMProviderKitAnthropic
-
-@Observable
-final class AIViewModel {
-    var selectedProvider = "ollama"
-
-    private let providers: [String: any LLMProvider] = [
-        "ollama": OllamaProvider(configuration: .local()),
-        "openai": OpenAIProvider(configuration: .openAI(apiKey: "sk-...")),
-        "gemini": GeminiProvider(configuration: .gemini(apiKey: "...")),
-        "anthropic": AnthropicProvider(configuration: .anthropic(apiKey: "..."))
-    ]
-
-    func complete(_ request: LLMRequest) async throws -> LLMResponse {
-        guard let provider = providers[selectedProvider] else {
-            throw LLMError.unknownProvider(selectedProvider)
-        }
-        return try await provider.complete(request)
-    }
-}
-```
-
-### Using the model picker in SwiftUI
-
-```swift
-@Observable
-final class ModelPickerModel {
-    let provider = OllamaProvider(configuration: .local())
-    let registry = LLMModelRegistry()
-    var models: [LLMModelInfo] = []
-    var selectedModel: String = ""
-
-    func load() async {
-        try? await registry.refresh(from: provider)
-        models = await registry.models(for: "ollama")
-        selectedModel = models.first?.id ?? ""
-    }
-}
-
-struct ModelPickerView: View {
-    @State private var model = ModelPickerModel()
-
-    var body: some View {
-        Picker("Model", selection: $model.selectedModel) {
-            ForEach(model.models) { m in
-                Text(m.displayName ?? m.id).tag(m.id)
-            }
-        }
-        .task { await model.load() }
-    }
-}
-```
-
-> For `LLMModelInfo` to work in `ForEach`, it already conforms to `Identifiable`.
-
-### App Sandbox & network entitlements
-
-macOS apps with **App Sandbox** enabled (the default for new Xcode projects) will **block all outgoing network connections**, including `localhost`. This means `OllamaProvider.availableModels()` and any `complete()` / `stream()` call will fail with:
-
-```
-A server with the specified hostname could not be found.
-```
-
-To fix this, add the following entitlements to your app's `.entitlements` file:
-
-```xml
-<key>com.apple.security.network.client</key>
-<true/>
-```
-
-If your app also needs to serve incoming connections (e.g. for callbacks), add:
-
-```xml
-<key>com.apple.security.network.server</key>
-<true/>
-```
-
-For **development only**, you can disable App Sandbox entirely:
-
-```xml
-<key>com.apple.security.app-sandbox</key>
-<false/>
-```
-
-> ⚠️ Disabling App Sandbox is fine for development but should not be shipped to production. For App Store distribution, keep the sandbox enabled and only add the `network.client` entitlement.
-
-To add the entitlements file in Xcode:
-
-1. Select your app target.
-2. Go to **Signing & Capabilities**.
-3. Click **+ Capability** and add **App Sandbox** (if not already present).
-4. Check **Outgoing Connections (Client)**.
-5. If you need incoming connections, also check **Incoming Connections (Server)**.
+> For SwiftUI examples, provider picker, model picker, and App Sandbox setup, see [docs/xcode.md](docs/xcode.md).
 
 ---
 
@@ -365,7 +176,7 @@ let response = try await ollama.complete(request)
 print("Resolved model: \(response.request.model)")
 ```
 
-> **⚠️ App Sandbox requirement:** If your macOS app uses **App Sandbox** (enabled by default in new Xcode projects), you must add the `com.apple.security.network.client` entitlement to your `.entitlements` file, otherwise all network calls — including `localhost:11434` — will silently fail with `"A server with the specified hostname could not be found."` See the [App Sandbox & network entitlements](#app-sandbox--network-entitlements) section below for full instructions.
+> **⚠️ App Sandbox:** If your macOS app uses **App Sandbox** (enabled by default), add the `com.apple.security.network.client` entitlement — otherwise all network calls fail silently. See [docs/xcode.md](docs/xcode.md) for full instructions.
 
 ### 1. Direct provider
 
@@ -674,18 +485,28 @@ public struct AnthropicProvider: LLMProvider {
 }
 ```
 
-That’s it. No changes needed in `LLMProviderKit` core.
+That's it. No changes needed in `LLMProviderKit` core.
+
+---
+
+## Alpha Status
+
+LLMProviderKit is early but usable. APIs may still evolve before beta.
+
+Tested with Ollama and Gemini, with expanding coverage for OpenAI and Anthropic.
+
+If you try it in a real Swift app, feedback is very welcome.
 
 ---
 
 ## Testing
 
 ```bash
-cd LLMProviderKit
+swift build
 swift test
 ```
 
-Tests cover parsing, streaming logic, model registry, and image encoding for all four providers without making real network calls.
+Includes 22 unit tests for parsing, streaming logic, model registry, tool calling, and image encoding for all four providers — no network calls.
 
 ---
 
