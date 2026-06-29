@@ -584,67 +584,6 @@ There are other multi-provider LLM packages for Swift. Here is how this one diff
 
 LLMProviderKit is intentionally lightweight: a pure networking abstraction with one protocol and native request/response mapping per provider. It stays current with new provider APIs without waiting for upstream wrappers.
 
----
-
-## Cross-platform naming
-
-If you plan to publish the same abstraction for Flutter and Rust, you have two strategies:
-
-### Option A: same brand name everywhere
-
-| Platform | Package name | Example |
-|---|---|---|
-| Swift | `llmkit` or `LLMProviderKit` | `LLMProviderKit` |
-| Flutter / Dart | `llmkit` | `llmkit: ^1.0.0` |
-| Rust | `llmkit` | `llmkit = "1.0"` |
-
-**Pros**
-- One name across all platforms and docs.
-- Easier marketing: "LLMProviderKit for Swift", "LLMProviderKit for Dart", "LLMProviderKit for Rust".
-- Users can migrate between platforms without learning new vocabulary.
-
-**Cons**
-- Naming conflicts become harder. `llmkit` on crates.io / pub.dev / Swift Package Index may already be taken.
-- You need to secure the name on all three ecosystems now.
-
-### Option B: platform-specific names
-
-| Platform | Package name | Example |
-|---|---|---|
-| Swift | `LLMProviderKit` |
-| Flutter / Dart | `llmkit_dart` or `llmkit_flutter` |
-| Rust | `llmkit_rs` or `llmkit_rust` |
-
-**Pros**
-- Easier to get a unique package id on each registry.
-- Follows common conventions (`package_foo` on pub.dev, `foo-rs` on crates.io).
-
-**Cons**
-- Weakens the cross-platform brand.
-- Docs and examples have to explain that these are the same project.
-
-### My recommendation
-
-Use the **same brand name** if you can secure it:
-
-1. Check availability **today** on:
-   - [pub.dev](https://pub.dev) for Flutter/Dart
-   - [crates.io](https://crates.io) for Rust
-   - [GitHub](https://github.com) org/repo name
-   - Swift Package Index (by publishing or reserving the GitHub repo)
-
-2. If `llmkit` is taken on any one registry, switch the **global brand** to a name that is free everywhere. Do not ship with a different name per platform — it fragments your ecosystem.
-
-Good global brand candidates to check:
-
-- `omnillm`
-- `llmbridge`
-- `polyllm`
-- `modelforge`
-- `aillm`
-
-> Because `LLMProviderKit` already exists on GitHub (`spprichard/LLMProviderKit`), I would treat the current repo as a working title and rebrand before the Flutter/Rust packages ship.
-
 ## Adding a Provider
 
 1. Add a new target in `Package.swift` (e.g. `LLMProviderKitAnthropic`).
