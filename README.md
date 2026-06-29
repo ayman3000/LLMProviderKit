@@ -1,11 +1,24 @@
 # LLMProviderKit
 
-A small, protocol-oriented Swift package that unifies chat completions and streaming across multiple LLM providers.
+A small, protocol-oriented Swift package that unifies chat completions, streaming, and tool calling across multiple LLM providers — with native provider APIs, not OpenAI-compat wrappers.
+
+```swift
+// Change the provider, keep the rest of your app unchanged.
+let provider: any LLMProvider
+
+provider = OllamaProvider(configuration: .local(model: "llama3.2"))
+provider = OpenAIProvider(configuration: .openAI(apiKey: "sk-…", model: "gpt-4o"))
+provider = GeminiProvider(configuration: .gemini(apiKey: "…", model: "gemini-2.5-flash"))
+provider = AnthropicProvider(configuration: .anthropic(apiKey: "…", model: "claude-sonnet-4"))
+
+let response = try await provider.complete(request)      // non-streaming
+for try await chunk in provider.stream(request) { … }    // streaming
+```
 
 Currently supported providers:
 
 - **Ollama** (`LLMProviderKitOllama`) — local-first, auto-discovers available models and picks the first one if none is configured. Custom host URL supported.
-- **OpenAI** (`LLMProviderKitOpenAI`)
+- **OpenAI** (`LLMProviderKitOpenAI`) — also works with any OpenAI-compatible endpoint (Groq, Together, etc.).
 - **Google Gemini** (`LLMProviderKitGemini`)
 - **Anthropic** (`LLMProviderKitAnthropic`)
 
@@ -479,6 +492,77 @@ when `message.images` is non-empty.
 > `gemini-2.5-flash`, `claude-3-5-sonnet`). If the model doesn't support images,
 > the provider will return its standard HTTP error.
 
+### 9. Tool calling (all providers)
+
+LLMProviderKit supports native tool calling across all four providers — the model
+decides whether to call a tool, and the provider handles the per-provider wire format.
+
+```swift
+import LLMProviderKit
+import LLMProviderKitOpenAI
+
+let provider = OpenAIProvider(configuration: .openAI(apiKey: "sk-…", model: "gpt-4o"))
+
+let request = LLMRequest(
+    model: "gpt-4o",
+    messages: [.user("What's the weather in Tokyo?")],
+    tools: [
+        LLMToolDefinition(
+            name: "get_weather",
+            description: "Get current weather for a city",
+            parameters: [
+                "type": "object",
+                "properties": [
+                    "city": ["type": "string", "description": "City name"]
+                ],
+                "required": ["city"]
+            ]
+        )
+    ]
+)
+
+let response = try await provider.complete(request)
+
+// Model chose to call a tool
+if let toolCalls = response.toolCalls, let call = toolCalls.first {
+    print("Tool: \(call.name)")       // get_weather
+    print("Args: \(call.arguments)")  // {"city":"Tokyo"}
+    print("ID:  \(call.id)")          // call_abc123
+}
+```
+
+Each provider maps tool calls to its native format:
+
+| Provider | Tool definitions | Tool calls in response | Tool results |
+|---|---|---|---|
+| **Ollama** | `{"tools": [...]}` | `tool_calls` array | `role: "tool"` + `tool_call_id` |
+| **OpenAI** | `{"tools": [...], "tool_choice": "auto"}` | `tool_calls` array | `role: "tool"` + `tool_call_id` |
+| **Anthropic** | `{"tools": [{name, description, input_schema}]}` | `tool_use` content blocks | `role: "user"` + `tool_result` blocks |
+| **Gemini** | `{"tools": [{"functionDeclarations": [...]}]}` | `functionCall` parts | `role: "model"` + `functionResponse` parts |
+
+To close the tool loop, send the tool result back as a `.tool(...)` message
+with the matching `toolCallId`:
+
+```swift
+// After executing the tool, continue the conversation
+let followUp = LLMRequest(
+    model: "gpt-4o",
+    messages: [
+        .user("What's the weather in Tokyo?"),
+        .assistant(toolCalls: response.toolCalls!),
+        .tool(content: "{\"temp\": 22, \"condition\": \"clear\"}", toolCallId: call.id)
+    ],
+    tools: request.tools
+)
+
+let final = try await provider.complete(followUp)
+print(final.text)  // "The weather in Tokyo is clear, around 22°C."
+```
+
+> For a full agent loop with parallel tool dispatch, dedup, repair-retry, and
+> planner support, see [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit)
+> which builds on LLMProviderKit.
+
 ---
 
 ## How LLMProviderKit compares
@@ -496,9 +580,9 @@ There are other multi-provider LLM packages for Swift. Here is how this one diff
 | Auto-resolve first Ollama model | ✅ | ❌ | ❌ | ❌ |
 | Multimodal image input | ✅ | ? | ? | ✅ |
 | macOS 13 / iOS 16 support | ✅ | iOS 15+ | ? | iOS 17+ |
-| Tools / structured outputs | ❌ planned | ✅ | ? | ✅ |
+| Native tool calling (all providers) | ✅ | ✅ via SwiftAnthropic | ❌ | ✅ |
 
-LLMProviderKit is intentionally lightweight: a pure networking abstraction with one protocol and native request/response mapping per provider. If you need tool calling or structured outputs today, PolyAI or SwiftAI are further ahead. If you want a dependency-free, portable core that stays current with new provider APIs without waiting for upstream wrappers, LLMProviderKit is the simpler fit.
+LLMProviderKit is intentionally lightweight: a pure networking abstraction with one protocol and native request/response mapping per provider. It stays current with new provider APIs without waiting for upstream wrappers.
 
 ---
 
