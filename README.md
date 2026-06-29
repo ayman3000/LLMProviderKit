@@ -51,7 +51,6 @@ Designed to make adding **xAI**, **DeepSeek**, **OpenRouter**, or any other prov
 - [Xcode Integration](#xcode-integration)
 - [Usage](#usage)
 - [Design Principles](#design-principles)
-- [Roadmap](#roadmap)
 - [Adding a Provider](#adding-a-provider)
 - [Testing](#testing)
 - [Support](#support)
@@ -642,19 +641,6 @@ print(final.text)  // "The weather in Tokyo is clear, around 22°C."
 6. **Provider-agnostic models.** `LLMRequest`, `LLMResponse`, `LLMMessage` are the same regardless of provider. Your app code doesn't change when you swap.
 
 ---
-
-## Roadmap
-
-- [ ] **xAI / Grok** provider
-- [ ] **DeepSeek** provider
-- [ ] **OpenRouter** provider
-- [ ] **Ollama function calling** — native tool-call response parsing
-- [ ] **Structured output** — JSON schema enforcement at the provider level
-- [ ] **Retry + backoff** — configurable retry policies for transient failures
-- [ ] **Rate limiting** — per-provider rate limit awareness
-- [ ] **Swift Package Index** — full DocC coverage
-
-> Have a provider you'd like added? [Open an issue](https://github.com/ayman3000/LLMProviderKit/issues) or submit a PR — see [Adding a Provider](#adding-a-provider) below.
 
 ## Adding a Provider
 
