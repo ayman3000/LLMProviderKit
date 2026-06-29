@@ -1,9 +1,23 @@
-# LLMProviderKit
+<p align="center">
+  <h1 align="center">LLMProviderKit</h1>
+  <p align="center"><strong>One protocol, every LLM provider. Native Swift.</strong></p>
+  <p align="center">Ollama · OpenAI · Gemini · Anthropic · Streaming · Tool calling · Vision</p>
+</p>
 
-A small, protocol-oriented Swift package that unifies chat completions, streaming, and tool calling across multiple LLM providers — with native provider APIs, not OpenAI-compat wrappers.
+<p align="center">
+  <img src="https://img.shields.io/badge/Swift-5.9%2B-orange" alt="Swift 5.9+">
+  <img src="https://img.shields.io/badge/platforms-macOS%2013%2B%20%7C%20iOS%2016%2B%20%7C%20tvOS%2016%2B%20%7C%20watchOS%209%2B%20%7C%20visionOS%201%2B-blue" alt="Platforms">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT">
+  <img src="https://img.shields.io/badge/zero%20deps-Foundation%20only-success" alt="Zero deps">
+</p>
+
+---
+
+> **Change the provider, keep the rest of your app unchanged.**
+
+A protocol-oriented Swift package that unifies chat completions, streaming, tool calling, and vision across multiple LLM providers — with native provider APIs, not OpenAI-compat wrappers.
 
 ```swift
-// Change the provider, keep the rest of your app unchanged.
 let provider: any LLMProvider
 
 provider = OllamaProvider(configuration: .local(model: "llama3.2"))
@@ -24,6 +38,41 @@ Currently supported providers:
 
 Designed to make adding **xAI**, **DeepSeek**, **OpenRouter**, or any other provider a matter of conforming to one protocol.
 
+> **Building agents?** See [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit) — it adds tools, memory, planning, sessions, and a ReAct loop on top of LLMProviderKit.
+
+---
+
+## Table of Contents
+
+- [Who is this for?](#who-is-this-for)
+- [Features](#features)
+- [Design](#design)
+- [Installation](#installation)
+- [Xcode Integration](#xcode-integration)
+- [Usage](#usage)
+- [Design Principles](#design-principles)
+- [Roadmap](#roadmap)
+- [Adding a Provider](#adding-a-provider)
+- [Testing](#testing)
+- [Support](#support)
+- [License](#license)
+
+---
+
+## Who is this for?
+
+LLMProviderKit is for Swift developers who need:
+
+- **Multi-provider LLM access** — one protocol, swap providers with one line
+- **Local-first apps** — Ollama support with auto model discovery
+- **Streaming chat** — token-by-token streaming for any provider
+- **Tool calling** — native tool definitions and tool-call parsing for all 4 providers
+- **Vision/multimodal** — send images to vision-capable models
+- **A model picker UI** — offline-friendly model registry with curated lists
+- **A lightweight networking layer** — Foundation only, zero external dependencies
+
+If you just need to talk to an LLM from Swift — without rewriting your code when you switch providers — LLMProviderKit is built for you.
+
 ---
 
 ## Design
@@ -37,6 +86,24 @@ Designed to make adding **xAI**, **DeepSeek**, **OpenRouter**, or any other prov
 | `LLMProviderKitAnthropic` | Anthropic Messages API implementation with SSE streaming. |
 
 No external dependencies. Uses `Foundation.URLSession` only.
+
+---
+
+## Features
+
+| Feature | Description |
+|---|---|
+| 🔄 **Multi-provider** | One `LLMProvider` protocol — Ollama, OpenAI, Gemini, Anthropic. Swap with one line. |
+| 🌊 **Streaming** | Token-by-token streaming via `AsyncThrowingStream` for all providers. |
+| 🔧 **Tool calling** | Native tool definitions + tool-call parsing for all 4 providers. |
+| 🖼️ **Vision/multimodal** | Send images to vision-capable models. Per-provider native encoding. |
+| 🖥️ **Local LLMs** | Full Ollama support with auto model discovery (`GET /api/tags`). |
+| 📋 **Model registry** | Offline-friendly `LLMModelRegistry` with curated lists and merge strategies. |
+| 🏗️ **Per-provider SPM targets** | Import only the providers you need — keeps binary size small. |
+| 🔌 **OpenAI-compatible endpoints** | Groq, Together, any OpenAI-compat API — just pass a custom base URL. |
+| 📡 **Unified service facade** | `LLMService` for multi-provider routing in one call. |
+| ⚡ **Async/await** | Native Swift concurrency throughout. No completion handlers. |
+| 📦 **Zero external deps** | Foundation + URLSession only. No third-party packages. |
 
 ---
 
@@ -565,24 +632,29 @@ print(final.text)  // "The weather in Tokyo is clear, around 22°C."
 
 ---
 
-## How LLMProviderKit compares
+## Design Principles
 
-There are other multi-provider LLM packages for Swift. Here is how this one differs:
+1. **One protocol.** `LLMProvider` is the only contract. Conform to it, and your provider works everywhere.
+2. **Native APIs, not wrappers.** Each provider speaks its own wire format — Ollama `api/chat`, Anthropic Messages API, Gemini `generateContent`. No OpenAI-compat shims unless the endpoint is actually OpenAI-compatible.
+3. **Per-provider SPM targets.** Import only what you need. Using Ollama? Don't ship OpenAI code.
+4. **Zero external dependencies.** Foundation + URLSession. No SwiftOpenAI, no SwiftAnthropic, no Alamofire, nothing.
+5. **Async/await everywhere.** Native Swift concurrency. `AsyncThrowingStream` for streaming.
+6. **Provider-agnostic models.** `LLMRequest`, `LLMResponse`, `LLMMessage` are the same regardless of provider. Your app code doesn't change when you swap.
 
-| Feature | LLMProviderKit | [PolyAI](https://github.com/jamesrochabrun/PolyAI) | [LLMChatOpenAI](https://github.com/kevinhermawan/swift-llm-chat-openai) | [SwiftAI](https://github.com/mi12labs/SwiftAI) |
-|---|---|---|---|---|
-| Zero external dependencies | ✅ Foundation only | ❌ SwiftOpenAI + SwiftAnthropic | ❌ | ❌ |
-| Per-provider SPM targets | ✅ | ❌ | ❌ | ❌ |
-| Native Ollama `/api/chat` | ✅ | ❌ OpenAI-compat only | ❌ OpenAI-compat only | ? |
-| Native Anthropic Messages API | ✅ | ✅ via SwiftAnthropic | ❌ | ? |
-| Native Gemini API | ✅ | ✅ | ❌ | ? |
-| Offline model registry + curated lists | ✅ | ❌ | ❌ | ❌ |
-| Auto-resolve first Ollama model | ✅ | ❌ | ❌ | ❌ |
-| Multimodal image input | ✅ | ? | ? | ✅ |
-| macOS 13 / iOS 16 support | ✅ | iOS 15+ | ? | iOS 17+ |
-| Native tool calling (all providers) | ✅ | ✅ via SwiftAnthropic | ❌ | ✅ |
+---
 
-LLMProviderKit is intentionally lightweight: a pure networking abstraction with one protocol and native request/response mapping per provider. It stays current with new provider APIs without waiting for upstream wrappers.
+## Roadmap
+
+- [ ] **xAI / Grok** provider
+- [ ] **DeepSeek** provider
+- [ ] **OpenRouter** provider
+- [ ] **Ollama function calling** — native tool-call response parsing
+- [ ] **Structured output** — JSON schema enforcement at the provider level
+- [ ] **Retry + backoff** — configurable retry policies for transient failures
+- [ ] **Rate limiting** — per-provider rate limit awareness
+- [ ] **Swift Package Index** — full DocC coverage
+
+> Have a provider you'd like added? [Open an issue](https://github.com/ayman3000/LLMProviderKit/issues) or submit a PR — see [Adding a Provider](#adding-a-provider) below.
 
 ## Adding a Provider
 
@@ -635,6 +707,23 @@ Tests cover parsing, streaming logic, model registry, and image encoding for all
 
 - Swift 5.9+
 - macOS 13+ / iOS 16+ / tvOS 16+ / watchOS 9+ / visionOS 1+
+
+---
+
+## Support
+
+If LLMProviderKit helps you:
+
+- ⭐ **Star the repository**
+- 🐛 **[Open an issue](https://github.com/ayman3000/LLMProviderKit/issues)** — bugs, feature requests, provider requests
+- ☕ **Support development on [Ko-fi](https://ko-fi.com/W7W61DDVO5)**
+
+**Follow the author:**
+- LinkedIn: [Ayman Hamed](https://www.linkedin.com/in/ayman-hamed-moustafa/)
+- Explore macOS AI products: [kommanda.app](https://www.kommanda.app)
+
+**Related:**
+- [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit) — AI agent framework built on LLMProviderKit
 
 ---
 
