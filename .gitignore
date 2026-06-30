@@ -9,3 +9,6 @@ DerivedData/
 
 # Internal docs — not for public repo
 docs/
+
+# Draft articles
+MEDIUM_ARTICLE.md
