@@ -114,6 +114,28 @@ struct ProviderTests {
         #expect(chunksEqual(chunks[1], .finish(reason: .stop, usage: LLMUsage(promptTokens: 8, completionTokens: 2, totalTokens: 10))))
     }
 
+    @Test func geminiParsesFunctionCallArgumentsObject() async throws {
+        let provider = GeminiProvider(configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash-lite"))
+        let data = """
+        {
+          "candidates": [{
+            "content": {
+              "role": "model",
+              "parts": [{"functionCall": {"name": "list_files", "args": {"directory": "/tmp", "limit": 3}}}]
+            },
+            "finishReason": "STOP"
+          }]
+        }
+        """.data(using: .utf8)!
+        let request = LLMRequest(model: "gemini-2.5-flash-lite", messages: [.user("List /tmp")])
+        let response = try provider.parseResponse(data, request: request)
+
+        #expect(response.toolCalls.count == 1)
+        #expect(response.toolCalls.first?.name == "list_files")
+        #expect(response.toolCalls.first?.decodedArguments()?["directory"] as? String == "/tmp")
+        #expect(response.toolCalls.first?.decodedArguments()?["limit"] as? Double == 3)
+    }
+
     // MARK: - Anthropic
 
     @Test func anthropicNonStreamingResponse() async throws {
@@ -158,6 +180,29 @@ struct ProviderTests {
         #expect(chunksEqual(chunks[0], .text("Hello")))
         #expect(chunksEqual(chunks[1], .text(" Claude")))
         #expect(chunksEqual(chunks[2], .finish(reason: .stop, usage: LLMUsage(promptTokens: 12, completionTokens: 5, totalTokens: 17))))
+    }
+
+    @Test func anthropicParsesToolUseInputObject() async throws {
+        let provider = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "test", model: "claude-3-5-sonnet-20241022"))
+        let data = """
+        {
+          "id": "msg_01",
+          "type": "message",
+          "role": "assistant",
+          "content": [{"type": "tool_use", "id": "toolu_123", "name": "list_files", "input": {"directory": "/tmp", "limit": 3}}],
+          "stop_reason": "tool_use",
+          "usage": { "input_tokens": 12, "output_tokens": 5 }
+        }
+        """.data(using: .utf8)!
+        let request = LLMRequest(model: "claude-3-5-sonnet-20241022", messages: [.user("List /tmp")])
+        let response = try provider.parseResponse(data, request: request)
+
+        #expect(response.finishReason == LLMFinishReason.toolCalls)
+        #expect(response.toolCalls.count == 1)
+        #expect(response.toolCalls.first?.id == "toolu_123")
+        #expect(response.toolCalls.first?.name == "list_files")
+        #expect(response.toolCalls.first?.decodedArguments()?["directory"] as? String == "/tmp")
+        #expect(response.toolCalls.first?.decodedArguments()?["limit"] as? Double == 3)
     }
 
     // MARK: - Model registry
@@ -325,5 +370,33 @@ extension ProviderTests {
         let firstMsg = try #require(messages.first)
         #expect(firstMsg["images"] == nil)
         #expect(firstMsg["content"] is String)
+    }
+
+    @Test func ollamaAssistantToolCallsSerializeArgumentsAsJSONObject() async throws {
+        let ollama = OllamaProvider(configuration: OllamaProvider.local(model: "qwen3:0.6b"))
+        let request = LLMRequest(
+            model: "qwen3:0.6b",
+            messages: [
+                .user("What time is it?"),
+                .assistant(content: "", toolCalls: [
+                    LLMToolCall(id: "call_1", name: "current_time", arguments: "{}"),
+                    LLMToolCall(id: "call_2", name: "echo_message", arguments: "{\"message\":\"SwiftAgentKit\"}")
+                ]),
+                .tool("Sunday, 28 June 2026 at 6:06:50 AM", toolCallId: "call_1"),
+                .tool("Echo: SwiftAgentKit", toolCallId: "call_2")
+            ]
+        )
+
+        let body = try #require(ollama.prepareRequest(request, stream: false).httpBody)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try #require(json["messages"] as? [[String: Any]])
+        let assistant = try #require(messages.first { $0["role"] as? String == "assistant" })
+        let toolCalls = try #require(assistant["tool_calls"] as? [[String: Any]])
+        let firstFunction = try #require(toolCalls[0]["function"] as? [String: Any])
+        let secondFunction = try #require(toolCalls[1]["function"] as? [String: Any])
+
+        #expect(firstFunction["arguments"] is [String: Any])
+        let secondArgs = try #require(secondFunction["arguments"] as? [String: Any])
+        #expect(secondArgs["message"] as? String == "SwiftAgentKit")
     }
 }

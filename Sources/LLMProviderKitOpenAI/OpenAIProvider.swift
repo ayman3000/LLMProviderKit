@@ -5,6 +5,7 @@ import LLMProviderKit
 ///
 /// Works with OpenAI (`https://api.openai.com/v1`) and any service that exposes
 /// the same `/chat/completions` shape (e.g. Groq, xAI, DeepSeek, OpenRouter).
+/// Supports native tool calling (function calling).
 public struct OpenAIProvider: LLMProvider {
     public static let name: String = "openai"
 
@@ -27,23 +28,69 @@ public struct OpenAIProvider: LLMProvider {
             urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
 
-        let body = OpenAIChatRequest(
-            model: request.model,
-            messages: request.messages.map { msg in
-                OpenAIMessage(role: msg.role, content: msg.content, images: msg.images)
+        // Build body as a dictionary to handle [String: Any] tool parameters
+        var bodyDict: [String: Any] = [
+            "model": request.model,
+            "messages": request.messages.map { msg -> [String: Any] in
+                var msgDict: [String: Any] = [
+                    "role": msg.role.rawValue,
+                    "content": msg.content
+                ]
+                if !msg.images.isEmpty {
+                    var parts: [[String: Any]] = [["type": "text", "text": msg.content]]
+                    for img in msg.images {
+                        parts.append([
+                            "type": "image_url",
+                            "image_url": ["url": "data:\(img.mimeType);base64,\(img.base64)"]
+                        ])
+                    }
+                    msgDict["content"] = parts
+                }
+                if let toolCallId = msg.toolCallId {
+                    msgDict["tool_call_id"] = toolCallId
+                }
+                // Include tool_calls for assistant messages
+                if let toolCalls = msg.toolCalls, !toolCalls.isEmpty {
+                    msgDict["tool_calls"] = toolCalls.map { tc -> [String: Any] in
+                        [
+                            "id": tc.id,
+                            "type": "function",
+                            "function": [
+                                "name": tc.name,
+                                "arguments": tc.arguments
+                            ]
+                        ]
+                    }
+                }
+                return msgDict
             },
-            temperature: request.temperature,
-            topP: request.topP,
-            maxTokens: request.maxTokens,
-            stream: stream
-        )
+            "stream": stream
+        ]
 
-        urlRequest.httpBody = try JSONEncoder().encode(body)
+        if let temp = request.temperature { bodyDict["temperature"] = temp }
+        if let topP = request.topP { bodyDict["top_p"] = topP }
+        if let maxTokens = request.maxTokens { bodyDict["max_tokens"] = maxTokens }
+
+        // Add tools if any
+        if !request.tools.isEmpty {
+            bodyDict["tools"] = request.tools.map { tool -> [String: Any] in
+                [
+                    "type": "function",
+                    "function": [
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters
+                    ]
+                ]
+            }
+            bodyDict["tool_choice"] = "auto"
+        }
+
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
         return urlRequest
     }
 
     public func parseStreamLine(_ line: String, request: LLMRequest) throws -> [LLMStreamChunk] {
-        // OpenAI streams SSE lines prefixed with `data: `.
         let prefix = "data: "
         guard line.hasPrefix(prefix) else { return [] }
 
@@ -63,11 +110,22 @@ public struct OpenAIProvider: LLMProvider {
             chunks.append(.text(delta))
         }
 
+        if let toolCalls = decoded.choices.first?.delta?.toolCalls, !toolCalls.isEmpty {
+            for tc in toolCalls {
+                chunks.append(.toolCall(LLMToolCall(
+                    id: tc.id ?? UUID().uuidString,
+                    name: tc.function?.name ?? "",
+                    arguments: tc.function?.arguments ?? "{}"
+                )))
+            }
+        }
+
         if let reason = decoded.choices.first?.finishReason {
             let mapped: LLMFinishReason = switch reason {
             case "stop": .stop
             case "length": .length
             case "content_filter": .contentFilter
+            case "tool_calls": .toolCalls
             default: .unknown
             }
             chunks.append(.finish(reason: mapped, usage: nil))
@@ -79,14 +137,26 @@ public struct OpenAIProvider: LLMProvider {
     public func parseResponse(_ data: Data, request: LLMRequest) throws -> LLMResponse {
         let decoded = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
         let text = decoded.choices.first?.message?.content ?? ""
+
+        // Parse native tool calls
+        let toolCalls: [LLMToolCall] = decoded.choices.first?.message?.toolCalls?.map { tc in
+            LLMToolCall(
+                id: tc.id ?? UUID().uuidString,
+                name: tc.function?.name ?? "",
+                arguments: tc.function?.arguments ?? "{}"
+            )
+        } ?? []
+
         let finishReason = decoded.choices.first?.finishReason.map { reason -> LLMFinishReason in
             switch reason {
             case "stop": return .stop
             case "length": return .length
             case "content_filter": return .contentFilter
+            case "tool_calls": return .toolCalls
             default: return .unknown
             }
-        }
+        } ?? (toolCalls.isEmpty ? .stop : .toolCalls)
+
         let usage = decoded.usage.map {
             LLMUsage(
                 promptTokens: $0.promptTokens,
@@ -94,10 +164,12 @@ public struct OpenAIProvider: LLMProvider {
                 totalTokens: $0.totalTokens
             )
         }
+
         return LLMResponse(
             text: text,
             finishReason: finishReason,
             usage: usage,
+            toolCalls: toolCalls,
             request: request,
             providerName: Self.name,
             rawData: data
@@ -130,101 +202,19 @@ public struct OpenAIProvider: LLMProvider {
     }
 }
 
-// MARK: - OpenAI chat API types
-
-private struct OpenAIChatRequest: Encodable {
-    let model: String
-    let messages: [OpenAIMessage]
-    let temperature: Double?
-    let topP: Double?
-    let maxTokens: Int?
-    let stream: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case model
-        case messages
-        case temperature
-        case topP = "top_p"
-        case maxTokens = "max_tokens"
-        case stream
-    }
-}
-
-private struct OpenAIMessage: Encodable {
-    let role: LLMMessageRole
-    let content: OpenAIContent
-    let images: [LLMImage]
-
-    init(role: LLMMessageRole, content: String, images: [LLMImage]) {
-        self.role = role
-        self.images = images
-        // When there are images, content becomes an array of parts.
-        // Otherwise, keep it as a plain string for backward compatibility.
-        if images.isEmpty {
-            self.content = .text(content)
-        } else {
-            var parts: [OpenAIContentPart] = [.text(content)]
-            for img in images {
-                parts.append(.imageURL("data:\(img.mimeType);base64,\(img.base64)"))
-            }
-            self.content = .parts(parts)
-        }
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case role
-        case content
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(role, forKey: .role)
-        switch content {
-        case .text(let str):
-            try container.encode(str, forKey: .content)
-        case .parts(let parts):
-            try container.encode(parts, forKey: .content)
-        }
-    }
-}
-
-private enum OpenAIContent {
-    case text(String)
-    case parts([OpenAIContentPart])
-}
-
-private enum OpenAIContentPart: Encodable {
-    case text(String)
-    case imageURL(String) // data:<mime>;base64,<b64>
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .text(let text):
-            try container.encode("text", forKey: .type)
-            try container.encode(text, forKey: .text)
-        case .imageURL(let url):
-            try container.encode("image_url", forKey: .type)
-            try container.encode(OpenAIImageURL(url: url), forKey: .imageURL)
-        }
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case type
-        case text
-        case imageURL = "image_url"
-    }
-}
-
-private struct OpenAIImageURL: Encodable {
-    let url: String
-}
+// MARK: - OpenAI chat API response types
 
 private struct OpenAIChatResponse: Decodable {
     struct Choice: Decodable {
         struct Message: Decodable {
             let role: String?
             let content: String?
+            let toolCalls: [OpenAIToolCall]?
+
+            enum CodingKeys: String, CodingKey {
+                case role, content
+                case toolCalls = "tool_calls"
+            }
         }
         let message: Message?
         let finishReason: String?
@@ -252,11 +242,27 @@ private struct OpenAIChatResponse: Decodable {
     let usage: Usage?
 }
 
+private struct OpenAIToolCall: Decodable {
+    let id: String?
+    let function: OpenAIToolCallFunction?
+}
+
+private struct OpenAIToolCallFunction: Decodable {
+    let name: String?
+    let arguments: String?
+}
+
 private struct OpenAIStreamChunk: Decodable {
     struct Choice: Decodable {
         struct Delta: Decodable {
             let role: String?
             let content: String?
+            let toolCalls: [OpenAIToolCall]?
+
+            enum CodingKeys: String, CodingKey {
+                case role, content
+                case toolCalls = "tool_calls"
+            }
         }
         let delta: Delta?
         let finishReason: String?
@@ -282,8 +288,6 @@ private struct OpenAIModelsResponse: Decodable {
 
 // MARK: - Model constants
 
-/// Well-known OpenAI model names. These are convenience constants only;
-/// pass any string to `LLMRequest.model` for models not listed here.
 public enum OpenAIModel {
     public static let gpt4o = "gpt-4o"
     public static let gpt4oMini = "gpt-4o-mini"
@@ -300,7 +304,6 @@ public enum OpenAIModel {
 // MARK: - Configuration presets
 
 extension OpenAIProvider {
-    /// Convenience configuration for the official OpenAI API.
     public static func openAI(apiKey: String, model: String = OpenAIModel.gpt4oMini) -> LLMProviderConfiguration {
         LLMProviderConfiguration(
             name: name,

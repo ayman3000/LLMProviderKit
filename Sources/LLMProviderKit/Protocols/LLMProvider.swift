@@ -64,9 +64,28 @@ extension LLMProvider {
         var resolvedRequest = request
         resolvedRequest.model = model
         let urlRequest = try prepareRequest(resolvedRequest, stream: false)
-        let (data, response) = try await urlSession.data(for: urlRequest)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await urlSession.data(for: urlRequest)
+            Self.debugLogHTTPResponse(response, data: data)
+        } catch {
+            throw LLMError.networkError(error.localizedDescription)
+        }
+
         try Self.verifyHTTPResponse(response, data: data)
-        return try parseResponse(data, request: resolvedRequest)
+
+        do {
+            return try parseResponse(data, request: resolvedRequest)
+        } catch let error as LLMError {
+            throw error
+        } catch {
+            let bodyPreview = String(data: data, encoding: .utf8)
+                .map { String($0.prefix(2_000)) }
+                ?? "<non-UTF8 response: \(data.count) bytes>"
+            throw LLMError.invalidResponse("\(error)\nRaw response preview: \(bodyPreview)")
+        }
     }
 
     /// Streaming completion.
@@ -125,5 +144,26 @@ extension LLMProvider {
         guard (200..<300).contains(http.statusCode) else {
             throw LLMError.httpError(http.statusCode, data)
         }
+    }
+
+    public static func debugLogHTTPResponse(_ response: URLResponse, data: Data) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["LLM_PROVIDERKIT_DEBUG_HTTP"] == "1" || env["LLM_PROVIDERKIT_DEBUG_HTTP"] == "true" else {
+            return
+        }
+
+        let status = (response as? HTTPURLResponse)?.statusCode.description ?? "<non-HTTP>"
+        let url = response.url?.absoluteString ?? "<url>"
+        let bodyText = String(data: data, encoding: .utf8) ?? "<non-UTF8 body: \(data.count) bytes>"
+        print("""
+        \n========== LLMProviderKit HTTP Response =========
+        Provider: \(Self.name)
+        Status: \(status)
+        URL: \(url)
+        Body bytes: \(data.count)
+        Body:
+        \(bodyText)
+        =========================================\n
+        """)
     }
 }

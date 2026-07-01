@@ -6,6 +6,9 @@ import LLMProviderKit
 /// Gemini exposes `generateContent` for non-streaming and
 /// `streamGenerateContent` for streaming. The content shape is a flat list of
 /// "parts" that we map from/to `LLMMessage`.
+///
+/// Supports native tool calling via `functionDeclarations` (tools in the request)
+/// and `functionCall` parts (tool calls in the response).
 public struct GeminiProvider: LLMProvider {
     public static let name: String = "gemini"
 
@@ -28,8 +31,6 @@ public struct GeminiProvider: LLMProvider {
         if let apiKey = configuration.apiKey {
             queryItems.append(URLQueryItem(name: "key", value: apiKey))
         }
-        // Gemini's streaming endpoint returns newline-delimited JSON by default.
-        // Request SSE format (data: {...}\n\n) so our line-based parser works cleanly.
         if stream {
             queryItems.append(URLQueryItem(name: "alt", value: "sse"))
         }
@@ -45,29 +46,117 @@ public struct GeminiProvider: LLMProvider {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let contents = request.messages.map { message -> GeminiContent in
-            var parts: [GeminiPart] = [.text(message.content)]
-            for img in message.images {
-                parts.append(.inlineData(mimeType: img.mimeType, data: img.base64))
+        // Build body as a dictionary (handles [String: Any] tool parameters natively)
+        var bodyDict: [String: Any] = [:]
+
+        // Build contents with parts (text, images, function calls, function responses)
+        var contents: [[String: Any]] = []
+        var systemInstruction: String?
+
+        for message in request.messages {
+            if message.role == .system {
+                // Gemini has no system role in contents; use systemInstruction
+                systemInstruction = message.content
+                continue
             }
-            return GeminiContent(role: Self.geminiRole(for: message.role), parts: parts)
+
+            let geminiRole = Self.geminiRole(for: message.role)
+            var parts: [[String: Any]] = []
+
+            // Text content
+            if !message.content.isEmpty {
+                parts.append(["text": message.content])
+            }
+
+            // Images
+            for img in message.images {
+                parts.append([
+                    "inlineData": [
+                        "mimeType": img.mimeType,
+                        "data": img.base64
+                    ]
+                ])
+            }
+
+            // Tool calls (assistant messages with function calls)
+            if let toolCalls = message.toolCalls, !toolCalls.isEmpty {
+                for tc in toolCalls {
+                    var args: [String: Any] = [:]
+                    if let decoded = tc.decodedArguments() {
+                        args = decoded
+                    }
+                    parts.append([
+                        "functionCall": [
+                            "name": tc.name,
+                            "args": args
+                        ]
+                    ])
+                }
+            }
+
+            // Tool results (tool messages → function response)
+            if message.role == .tool {
+                // Gemini expects functionResponse in parts; use the toolCallId
+                // (which carries the function name from the originating call)
+                // as the name so the model can correlate the response.
+                let responseName = message.toolCallId ?? "tool_result"
+                // Try to parse the content as JSON; if it fails, wrap as a dict.
+                var responseObj: [String: Any] = [:]
+                if let data = message.content.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    responseObj = parsed
+                } else {
+                    responseObj = ["result": message.content]
+                }
+                parts.append([
+                    "functionResponse": [
+                        "name": responseName,
+                        "response": responseObj
+                    ]
+                ])
+            }
+
+            if !parts.isEmpty {
+                contents.append([
+                    "role": geminiRole,
+                    "parts": parts
+                ])
+            }
         }
 
-        let body = GeminiRequest(
-            contents: contents,
-            generationConfig: GeminiGenerationConfig(
-                temperature: request.temperature,
-                topP: request.topP,
-                maxOutputTokens: request.maxTokens
-            )
-        )
+        bodyDict["contents"] = contents
 
-        urlRequest.httpBody = try JSONEncoder().encode(body)
+        // System instruction
+        if let sys = systemInstruction {
+            bodyDict["systemInstruction"] = ["parts": [["text": sys]]]
+        }
+
+        // Generation config
+        var genConfig: [String: Any] = [:]
+        if let temp = request.temperature { genConfig["temperature"] = temp }
+        if let topP = request.topP { genConfig["topP"] = topP }
+        if let maxTokens = request.maxTokens { genConfig["maxOutputTokens"] = maxTokens }
+        if !genConfig.isEmpty {
+            bodyDict["generationConfig"] = genConfig
+        }
+
+        // Tools (function declarations)
+        if !request.tools.isEmpty {
+            let functionDeclarations = request.tools.map { tool -> [String: Any] in
+                [
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters
+                ]
+            }
+            bodyDict["tools"] = [["functionDeclarations": functionDeclarations]]
+        }
+
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
         return urlRequest
     }
 
     public func parseStreamLine(_ line: String, request: LLMRequest) throws -> [LLMStreamChunk] {
-        // Gemini SSE streams use "data: {...}" format.
         var jsonLine = line
         if jsonLine.hasPrefix("data: ") {
             jsonLine = String(jsonLine.dropFirst(6))
@@ -80,14 +169,27 @@ public struct GeminiProvider: LLMProvider {
         }
 
         let decoded = try JSONDecoder().decode(GeminiResponse.self, from: data)
-        let text = decoded.candidates?
-            .first?
-            .content?
-            .parts?
-            .compactMap(\.text)
-            .joined() ?? ""
-
         var chunks: [LLMStreamChunk] = []
+
+        // Text and tool calls from parts
+        let parts = decoded.candidates?.first?.content?.parts ?? []
+        var text = ""
+        for part in parts {
+            if let partText = part.text {
+                text += partText
+            }
+            if let funcCall = part.functionCall {
+                let argsData = try? JSONSerialization.data(withJSONObject: funcCall.args ?? [:], options: [])
+                let argsString = argsData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                let toolCall = LLMToolCall(
+                    id: funcCall.name ?? UUID().uuidString,
+                    name: funcCall.name ?? "",
+                    arguments: argsString
+                )
+                chunks.append(.toolCall(toolCall))
+            }
+        }
+
         if !text.isEmpty {
             chunks.append(.text(text))
         }
@@ -101,9 +203,13 @@ public struct GeminiProvider: LLMProvider {
                     totalTokens: meta.totalTokenCount
                 )
             }
+            // Map STOP→.stop unless we already emitted tool calls (→ .toolCalls)
             let mappedReason: LLMFinishReason? = finishReason.map {
                 switch $0 {
-                case "STOP": return .stop
+                case "STOP": return chunks.contains(where: { chunk in
+                    if case .toolCall = chunk { return true }
+                    return false
+                }) ? .toolCalls : .stop
                 case "MAX_TOKENS": return .length
                 case "SAFETY": return .contentFilter
                 default: return .unknown
@@ -117,12 +223,28 @@ public struct GeminiProvider: LLMProvider {
 
     public func parseResponse(_ data: Data, request: LLMRequest) throws -> LLMResponse {
         let decoded = try JSONDecoder().decode(GeminiResponse.self, from: data)
-        let text = decoded.candidates?
-            .first?
-            .content?
-            .parts?
-            .compactMap(\.text)
-            .joined() ?? ""
+
+        // Extract text and tool calls from parts
+        var text = ""
+        var toolCalls: [LLMToolCall] = []
+
+        if let parts = decoded.candidates?.first?.content?.parts {
+            for part in parts {
+                if let partText = part.text {
+                    text += partText
+                }
+                // Check for function call
+                if let funcCall = part.functionCall {
+                    let argsData = try? JSONSerialization.data(withJSONObject: funcCall.args ?? [:], options: [])
+                    let argsString = argsData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                    toolCalls.append(LLMToolCall(
+                        id: funcCall.name ?? UUID().uuidString,
+                        name: funcCall.name ?? "",
+                        arguments: argsString
+                    ))
+                }
+            }
+        }
 
         let usage = decoded.usageMetadata.map { meta in
             LLMUsage(
@@ -139,12 +261,13 @@ public struct GeminiProvider: LLMProvider {
             case "SAFETY": return .contentFilter
             default: return .unknown
             }
-        }
+        } ?? (toolCalls.isEmpty ? .stop : .toolCalls)
 
         return LLMResponse(
             text: text,
             finishReason: finishReason,
             usage: usage,
+            toolCalls: toolCalls,
             request: request,
             providerName: Self.name,
             rawData: data
@@ -187,10 +310,10 @@ public struct GeminiProvider: LLMProvider {
 
     private static func geminiRole(for role: LLMMessageRole) -> String {
         switch role {
-        case .system: return "user" // Gemini has no system role; treat as user.
+        case .system: return "user"
         case .user: return "user"
         case .assistant: return "model"
-        case .tool: return "model" // Approximation.
+        case .tool: return "model" // Gemini uses "model" role for function responses
         }
     }
 
@@ -212,58 +335,12 @@ public struct GeminiProvider: LLMProvider {
 
 // MARK: - Gemini API types
 
-private struct GeminiRequest: Encodable {
-    let contents: [GeminiContent]
-    let generationConfig: GeminiGenerationConfig?
-}
-
-private struct GeminiContent: Encodable {
-    let role: String?
-    let parts: [GeminiPart]
-}
-
-private enum GeminiPart: Encodable {
-    case text(String)
-    case inlineData(mimeType: String, data: String)
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .text(let value):
-            try container.encode(value, forKey: .text)
-        case .inlineData(let mimeType, let data):
-            try container.encode(GeminiInlineData(mimeType: mimeType, data: data), forKey: .inlineData)
-        }
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case text
-        case inlineData = "inlineData"
-    }
-}
-
-private struct GeminiInlineData: Encodable {
-    let mimeType: String
-    let data: String
-}
-
-private struct GeminiGenerationConfig: Encodable {
-    let temperature: Double?
-    let topP: Double?
-    let maxOutputTokens: Int?
-
-    enum CodingKeys: String, CodingKey {
-        case temperature
-        case topP = "top_p"
-        case maxOutputTokens = "max_output_tokens"
-    }
-}
-
 private struct GeminiResponse: Decodable {
     struct Candidate: Decodable {
         struct Content: Decodable {
             struct Part: Decodable {
                 let text: String?
+                let functionCall: GeminiFunctionCall?
             }
             let role: String?
             let parts: [Part]?
@@ -281,16 +358,72 @@ private struct GeminiResponse: Decodable {
         let promptTokenCount: Int?
         let candidatesTokenCount: Int?
         let totalTokenCount: Int?
-
-        enum CodingKeys: String, CodingKey {
-            case promptTokenCount = "promptTokenCount"
-            case candidatesTokenCount = "candidatesTokenCount"
-            case totalTokenCount = "totalTokenCount"
-        }
     }
 
     let candidates: [Candidate]?
     let usageMetadata: UsageMetadata?
+}
+
+private struct GeminiFunctionCall: Decodable {
+    let name: String?
+    let args: [String: Any]?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        if let decoded = try container.decodeIfPresent(JSONValue.self, forKey: .args) {
+            if case .object(let object) = decoded {
+                self.args = object.mapValues { $0.anyValue }
+            } else {
+                self.args = nil
+            }
+        } else {
+            self.args = nil
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, args
+    }
+}
+
+private enum JSONValue: Decodable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case object([String: JSONValue])
+    case array([JSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .number(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([String: JSONValue].self) {
+            self = .object(value)
+        } else if let value = try? container.decode([JSONValue].self) {
+            self = .array(value)
+        } else {
+            self = .null
+        }
+    }
+
+    var anyValue: Any {
+        switch self {
+        case .string(let value): return value
+        case .number(let value): return value
+        case .bool(let value): return value
+        case .object(let value): return value.mapValues { $0.anyValue }
+        case .array(let value): return value.map { $0.anyValue }
+        case .null: return NSNull()
+        }
+    }
 }
 
 // MARK: - Gemini models API types
@@ -301,13 +434,6 @@ private struct GeminiModelsResponse: Decodable {
         let displayName: String?
         let inputTokenLimit: Int?
         let supportedGenerationMethods: [String]?
-
-        enum CodingKeys: String, CodingKey {
-            case name
-            case displayName
-            case inputTokenLimit
-            case supportedGenerationMethods
-        }
     }
 
     let models: [Model]
@@ -315,8 +441,6 @@ private struct GeminiModelsResponse: Decodable {
 
 // MARK: - Model constants
 
-/// Well-known Gemini model names. These are convenience constants only;
-/// pass any string to `LLMRequest.model` for models not listed here.
 public enum GeminiModel {
     public static let flash = "gemini-2.5-flash"
     public static let flashLite = "gemini-2.5-flash-lite"
@@ -328,7 +452,6 @@ public enum GeminiModel {
 // MARK: - Configuration presets
 
 extension GeminiProvider {
-    /// Convenience configuration for the official Gemini API.
     public static func gemini(apiKey: String, model: String = GeminiModel.flash) -> LLMProviderConfiguration {
         LLMProviderConfiguration(
             name: name,

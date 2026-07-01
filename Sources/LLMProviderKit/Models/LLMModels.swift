@@ -16,11 +16,20 @@ public struct LLMMessage: Sendable, Equatable {
     public let role: LLMMessageRole
     public let content: String
     public var images: [LLMImage]
+    /// Correlates a tool-result message with the original tool call.
+    /// Only set when `role == .tool`.
+    public var toolCallId: String?
+    /// Tool calls made by the assistant. Only set when `role == .assistant`.
+    /// Providers serialize these into the provider-specific format so the
+    /// model can correlate subsequent tool results with the original calls.
+    public var toolCalls: [LLMToolCall]?
 
-    public init(role: LLMMessageRole, content: String, images: [LLMImage] = []) {
+    public init(role: LLMMessageRole, content: String, images: [LLMImage] = [], toolCallId: String? = nil, toolCalls: [LLMToolCall]? = nil) {
         self.role = role
         self.content = content
         self.images = images
+        self.toolCallId = toolCallId
+        self.toolCalls = toolCalls
     }
 
     public static func system(_ content: String) -> Self {
@@ -37,6 +46,16 @@ public struct LLMMessage: Sendable, Equatable {
 
     public static func assistant(_ content: String) -> Self {
         LLMMessage(role: .assistant, content: content)
+    }
+
+    /// Create an assistant message with tool calls.
+    public static func assistant(content: String = "", toolCalls: [LLMToolCall]) -> Self {
+        LLMMessage(role: .assistant, content: content, toolCalls: toolCalls)
+    }
+
+    /// Create a tool-result message with the tool call ID for correlation.
+    public static func tool(_ content: String, toolCallId: String) -> Self {
+        LLMMessage(role: .tool, content: content, toolCallId: toolCallId)
     }
 }
 
@@ -64,24 +83,12 @@ public struct LLMImage: Sendable, Equatable, Codable {
 
 /// A chat completion request, independent of any provider.
 public struct LLMRequest: Sendable {
-    /// Model identifier as understood by the target provider.
-    /// Examples: `"llama3.2"` for Ollama, `"gpt-4o"` for OpenAI,
-    /// `"gemini-2.0-flash"` for Gemini.
     public var model: String
-
-    /// Conversation history plus the new message to answer.
     public var messages: [LLMMessage]
-
-    /// Sampling temperature. `nil` lets the provider use its default.
     public var temperature: Double?
-
-    /// Maximum tokens to generate. `nil` lets the provider decide.
     public var maxTokens: Int?
-
-    /// Penalize repeated tokens. `nil` uses the provider default.
     public var topP: Double?
-
-    /// Optional unique identifier for correlating requests and streams.
+    public var tools: [LLMToolDefinition]
     public var id: UUID
 
     public init(
@@ -90,6 +97,7 @@ public struct LLMRequest: Sendable {
         temperature: Double? = nil,
         maxTokens: Int? = nil,
         topP: Double? = nil,
+        tools: [LLMToolDefinition] = [],
         id: UUID = UUID()
     ) {
         self.model = model
@@ -97,16 +105,15 @@ public struct LLMRequest: Sendable {
         self.temperature = temperature
         self.maxTokens = maxTokens
         self.topP = topP
+        self.tools = tools
         self.id = id
     }
 }
 
 /// A single chunk of a streaming response.
-///
-/// For non-streaming calls the stream emits exactly one `.text` value followed by
-/// a `.finish` value.
 public enum LLMStreamChunk: Sendable {
     case text(String)
+    case toolCall(LLMToolCall)
     case finish(reason: LLMFinishReason?, usage: LLMUsage?)
     case error(Error)
 }
@@ -135,28 +142,19 @@ public struct LLMUsage: Sendable, Equatable {
 
 /// A complete chat response assembled from one or more stream chunks.
 public struct LLMResponse: Sendable {
-    /// The full generated text.
     public let text: String
-
-    /// Provider-supplied finish reason, if any.
     public let finishReason: LLMFinishReason?
-
-    /// Provider-supplied usage, if any.
     public let usage: LLMUsage?
-
-    /// The original request.
+    public let toolCalls: [LLMToolCall]
     public let request: LLMRequest
-
-    /// Provider that produced this response.
     public let providerName: String
-
-    /// Raw response data from the provider for advanced inspection.
     public let rawData: Data?
 
     public init(
         text: String,
         finishReason: LLMFinishReason? = nil,
         usage: LLMUsage? = nil,
+        toolCalls: [LLMToolCall] = [],
         request: LLMRequest,
         providerName: String,
         rawData: Data? = nil
@@ -164,9 +162,47 @@ public struct LLMResponse: Sendable {
         self.text = text
         self.finishReason = finishReason
         self.usage = usage
+        self.toolCalls = toolCalls
         self.request = request
         self.providerName = providerName
         self.rawData = rawData
+    }
+}
+
+// MARK: - Tool Calling
+
+/// A tool definition sent to the LLM so the model can call it.
+public struct LLMToolDefinition: @unchecked Sendable {
+    public let name: String
+    public let description: String
+    public let parameters: [String: Any]
+
+    public init(name: String, description: String, parameters: [String: Any]) {
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+    }
+
+    public static func == (lhs: LLMToolDefinition, rhs: LLMToolDefinition) -> Bool {
+        lhs.name == rhs.name && lhs.description == rhs.description
+    }
+}
+
+/// A tool call returned by the LLM in its response.
+public struct LLMToolCall: Sendable, Equatable, Codable {
+    public let id: String
+    public let name: String
+    public let arguments: String
+
+    public init(id: String = UUID().uuidString, name: String, arguments: String) {
+        self.id = id
+        self.name = name
+        self.arguments = arguments
+    }
+
+    public func decodedArguments() -> [String: Any]? {
+        guard let data = arguments.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 }
 
@@ -177,6 +213,8 @@ extension LLMMessage: Codable {
         case role
         case content
         case images
+        case toolCallId
+        case toolCalls
     }
 }
 
