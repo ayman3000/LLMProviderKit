@@ -289,27 +289,20 @@ private struct OpenAIModelsResponse: Decodable {
 // MARK: - Model constants
 
 public enum OpenAIModel {
-    // GPT-4.1 family (April 2025)
-    public static let gpt41 = "gpt-4.1"
-    public static let gpt41Mini = "gpt-4.1-mini"
-    public static let gpt41Nano = "gpt-4.1-nano"
-    // GPT-4o family
+    // GPT-5.5 family (current flagship)
+    public static let gpt55 = "gpt-5.5"
+    // GPT-5.4 family
+    public static let gpt54 = "gpt-5.4"
+    public static let gpt54Mini = "gpt-5.4-mini"
+    // GPT-4o family (still available)
     public static let gpt4o = "gpt-4o"
     public static let gpt4oMini = "gpt-4o-mini"
-    // o-series reasoning models
-    public static let o3 = "o3"
-    public static let o3Mini = "o3-mini"
-    public static let o4Mini = "o4-mini"
-    // Legacy
-    public static let gpt4Turbo = "gpt-4-turbo"
-    public static let gpt4 = "gpt-4"
-    public static let gpt35Turbo = "gpt-3.5-turbo"
 }
 
 // MARK: - Configuration presets
 
 extension OpenAIProvider {
-    public static func openAI(apiKey: String, model: String = OpenAIModel.gpt41Mini) -> LLMProviderConfiguration {
+    public static func openAI(apiKey: String, model: String = OpenAIModel.gpt54Mini) -> LLMProviderConfiguration {
         LLMProviderConfiguration(
             name: name,
             baseURL: URL(string: "https://api.openai.com/v1")!,

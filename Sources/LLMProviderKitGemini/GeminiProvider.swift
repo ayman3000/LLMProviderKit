@@ -442,17 +442,21 @@ private struct GeminiModelsResponse: Decodable {
 // MARK: - Model constants
 
 public enum GeminiModel {
+    // Gemini 3.x family (current)
+    public static let flash35 = "gemini-3.5-flash"
+    public static let flashLite31 = "gemini-3.1-flash-lite"
+    public static let pro31 = "gemini-3.1-pro"
+    public static let flash30 = "gemini-3-flash"
+    // Gemini 2.5 family (still available)
     public static let flash = "gemini-2.5-flash"
     public static let flashLite = "gemini-2.5-flash-lite"
     public static let pro = "gemini-2.5-pro"
-    public static let flash15 = "gemini-1.5-flash"
-    public static let pro15 = "gemini-1.5-pro"
 }
 
 // MARK: - Configuration presets
 
 extension GeminiProvider {
-    public static func gemini(apiKey: String, model: String = GeminiModel.flash) -> LLMProviderConfiguration {
+    public static func gemini(apiKey: String, model: String = GeminiModel.flash35) -> LLMProviderConfiguration {
         LLMProviderConfiguration(
             name: name,
             baseURL: URL(string: "https://generativelanguage.googleapis.com/v1beta")!,

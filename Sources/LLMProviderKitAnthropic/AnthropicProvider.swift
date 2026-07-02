@@ -402,15 +402,19 @@ private enum JSONValue: Decodable {
 // MARK: - Model constants
 
 public enum AnthropicModel {
-    // Claude 4 family (current)
+    // Current models
+    public static let fable5 = "claude-fable-5"
+    public static let opus48 = "claude-opus-4-8"
+    public static let sonnet46 = "claude-sonnet-4-6"
+    public static let haiku45 = "claude-haiku-4-5-20251001"
+    // Legacy
     public static let opus41 = "claude-opus-4-1-20250805"
     public static let sonnet4 = "claude-sonnet-4-20250514"
     public static let opus4 = "claude-opus-4-20250514"
-    // Claude 3.5 family (legacy)
     public static let sonnet35 = "claude-3-5-sonnet-20241022"
     public static let haiku35 = "claude-3-5-haiku-20241022"
     public static let opus3 = "claude-3-opus-20240229"
-    public static let sonnet = sonnet4
+    public static let sonnet = sonnet46
 }
 
 // MARK: - Configuration presets
@@ -418,50 +422,50 @@ public enum AnthropicModel {
 extension AnthropicProvider {
     public static let curatedModels: [LLMModelInfo] = [
         LLMModelInfo(
-            id: AnthropicModel.opus41,
+            id: AnthropicModel.fable5,
             providerName: name,
-            displayName: "Claude Opus 4.1",
-            contextWindow: 200_000,
+            displayName: "Claude Fable 5",
+            contextWindow: 1_000_000,
             capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
+        ),
+        LLMModelInfo(
+            id: AnthropicModel.opus48,
+            providerName: name,
+            displayName: "Claude Opus 4.8",
+            contextWindow: 1_000_000,
+            capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
+        ),
+        LLMModelInfo(
+            id: AnthropicModel.sonnet46,
+            providerName: name,
+            displayName: "Claude Sonnet 4.6",
+            contextWindow: 1_000_000,
+            capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
+        ),
+        LLMModelInfo(
+            id: AnthropicModel.haiku45,
+            providerName: name,
+            displayName: "Claude Haiku 4.5",
+            contextWindow: 200_000,
+            capabilities: [.chat, .streaming, .tools, .vision]
         ),
         LLMModelInfo(
             id: AnthropicModel.sonnet4,
             providerName: name,
-            displayName: "Claude Sonnet 4",
-            contextWindow: 200_000,
-            capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
-        ),
-        LLMModelInfo(
-            id: AnthropicModel.opus4,
-            providerName: name,
-            displayName: "Claude Opus 4",
+            displayName: "Claude Sonnet 4 (legacy)",
             contextWindow: 200_000,
             capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
         ),
         LLMModelInfo(
             id: AnthropicModel.sonnet35,
             providerName: name,
-            displayName: "Claude 3.5 Sonnet",
+            displayName: "Claude 3.5 Sonnet (legacy)",
             contextWindow: 200_000,
             capabilities: [.chat, .streaming, .tools, .vision]
         ),
-        LLMModelInfo(
-            id: AnthropicModel.haiku35,
-            providerName: name,
-            displayName: "Claude 3.5 Haiku",
-            contextWindow: 200_000,
-            capabilities: [.chat, .streaming, .tools]
-        ),
-        LLMModelInfo(
-            id: AnthropicModel.opus3,
-            providerName: name,
-            displayName: "Claude 3 Opus",
-            contextWindow: 200_000,
-            capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
-        )
     ]
 
-    public static func anthropic(apiKey: String, model: String = AnthropicModel.sonnet4) -> LLMProviderConfiguration {
+    public static func anthropic(apiKey: String, model: String = AnthropicModel.sonnet46) -> LLMProviderConfiguration {
         LLMProviderConfiguration(
             name: name,
             baseURL: URL(string: "https://api.anthropic.com/v1")!,
