@@ -402,12 +402,15 @@ private enum JSONValue: Decodable {
 // MARK: - Model constants
 
 public enum AnthropicModel {
+    // Claude 4 family (current)
+    public static let opus41 = "claude-opus-4-1-20250805"
+    public static let sonnet4 = "claude-sonnet-4-20250514"
+    public static let opus4 = "claude-opus-4-20250514"
+    // Claude 3.5 family (legacy)
     public static let sonnet35 = "claude-3-5-sonnet-20241022"
     public static let haiku35 = "claude-3-5-haiku-20241022"
     public static let opus3 = "claude-3-opus-20240229"
-    public static let sonnet4 = "claude-4-sonnet-20250514"
-    public static let opus4 = "claude-4-opus-20250514"
-    public static let sonnet = sonnet35
+    public static let sonnet = sonnet4
 }
 
 // MARK: - Configuration presets
@@ -415,16 +418,23 @@ public enum AnthropicModel {
 extension AnthropicProvider {
     public static let curatedModels: [LLMModelInfo] = [
         LLMModelInfo(
-            id: AnthropicModel.opus4,
+            id: AnthropicModel.opus41,
             providerName: name,
-            displayName: "Claude 4 Opus",
+            displayName: "Claude Opus 4.1",
             contextWindow: 200_000,
             capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
         ),
         LLMModelInfo(
             id: AnthropicModel.sonnet4,
             providerName: name,
-            displayName: "Claude 4 Sonnet",
+            displayName: "Claude Sonnet 4",
+            contextWindow: 200_000,
+            capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
+        ),
+        LLMModelInfo(
+            id: AnthropicModel.opus4,
+            providerName: name,
+            displayName: "Claude Opus 4",
             contextWindow: 200_000,
             capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
         ),
@@ -451,7 +461,7 @@ extension AnthropicProvider {
         )
     ]
 
-    public static func anthropic(apiKey: String, model: String = AnthropicModel.sonnet35) -> LLMProviderConfiguration {
+    public static func anthropic(apiKey: String, model: String = AnthropicModel.sonnet4) -> LLMProviderConfiguration {
         LLMProviderConfiguration(
             name: name,
             baseURL: URL(string: "https://api.anthropic.com/v1")!,
