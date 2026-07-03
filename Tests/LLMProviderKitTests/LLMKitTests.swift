@@ -136,6 +136,89 @@ struct ProviderTests {
         #expect(response.toolCalls.first?.decodedArguments()?["limit"] as? Double == 3)
     }
 
+    @Test func geminiPreservesFunctionCallThoughtSignature() async throws {
+        let provider = GeminiProvider(configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash"))
+        let data = """
+        {
+          "candidates": [{
+            "content": {
+              "role": "model",
+              "parts": [{
+                "functionCall": { "name": "current_datetime", "args": {} },
+                "thoughtSignature": "signed-part-token"
+              }]
+            },
+            "finishReason": "STOP"
+          }]
+        }
+        """.data(using: .utf8)!
+        let request = LLMRequest(model: "gemini-2.5-flash", messages: [.user("What time is it?")])
+        let response = try provider.parseResponse(data, request: request)
+
+        #expect(response.toolCalls.count == 1)
+        #expect(response.toolCalls.first?.providerMetadata["gemini.thoughtSignature"] == "signed-part-token")
+    }
+
+    @Test func geminiAssistantToolCallsReplayThoughtSignature() async throws {
+        let provider = GeminiProvider(configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash"))
+        let request = LLMRequest(
+            model: "gemini-2.5-flash",
+            messages: [
+                .assistant(content: "", toolCalls: [
+                    LLMToolCall(
+                        id: "call_1",
+                        name: "current_datetime",
+                        arguments: "{}",
+                        providerMetadata: ["gemini.thoughtSignature": "signed-part-token"]
+                    )
+                ])
+            ]
+        )
+
+        let body = try #require(provider.prepareRequest(request, stream: false).httpBody)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let contents = try #require(json["contents"] as? [[String: Any]])
+        let parts = try #require(contents.first?["parts"] as? [[String: Any]])
+        let functionCallPart = try #require(parts.first)
+
+        #expect(functionCallPart["thoughtSignature"] as? String == "signed-part-token")
+    }
+
+    @Test func geminiPrepareRequestNormalizesPrefixedModelID() async throws {
+        let provider = GeminiProvider(configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash"))
+        let request = LLMRequest(model: "models/gemini-2.5-flash", messages: [.user("Hi")])
+
+        let urlRequest = try provider.prepareRequest(request, stream: false)
+
+        #expect(urlRequest.url?.path == "/v1beta/models/gemini-2.5-flash:generateContent")
+    }
+
+    @Test func geminiAvailableModelsNormalizeIDsAndMarkTools() async throws {
+        GeminiModelsMockURLProtocol.responseData = """
+        {
+          "models": [{
+            "name": "models/gemini-2.5-flash",
+            "displayName": "Gemini 2.5 Flash",
+            "inputTokenLimit": 1048576,
+            "supportedGenerationMethods": ["generateContent", "countTokens"]
+          }]
+        }
+        """.data(using: .utf8)!
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiModelsMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let provider = GeminiProvider(
+            configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash"),
+            urlSession: session
+        )
+
+        let models = try await provider.availableModels()
+
+        #expect(models.first?.id == "gemini-2.5-flash")
+        #expect(models.first?.capabilities.contains(.tools) == true)
+    }
+
     // MARK: - Anthropic
 
     @Test func anthropicNonStreamingResponse() async throws {
@@ -268,6 +351,32 @@ struct ProviderTests {
             _ = try await service.provider(named: "anthropic")
         }
     }
+}
+
+private final class GeminiModelsMockURLProtocol: URLProtocol {
+    static var responseData = Data()
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.responseData)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 // MARK: - LLMStreamChunk comparison helper for tests

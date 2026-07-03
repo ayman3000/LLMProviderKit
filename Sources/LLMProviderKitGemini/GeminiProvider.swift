@@ -11,16 +11,20 @@ import LLMProviderKit
 /// and `functionCall` parts (tool calls in the response).
 public struct GeminiProvider: LLMProvider {
     public static let name: String = "gemini"
+    private static let thoughtSignatureMetadataKey = "gemini.thoughtSignature"
 
     public let configuration: LLMProviderConfiguration
+    public let urlSession: URLSession
 
-    public init(configuration: LLMProviderConfiguration) {
+    public init(configuration: LLMProviderConfiguration, urlSession: URLSession = .shared) {
         self.configuration = configuration
+        self.urlSession = urlSession
     }
 
     public func prepareRequest(_ request: LLMRequest, stream: Bool) throws -> URLRequest {
         let action = stream ? "streamGenerateContent" : "generateContent"
-        let path = "models/\(request.model):\(action)"
+        let model = Self.normalizedModelID(request.model)
+        let path = "models/\(model):\(action)"
 
         guard var components = URLComponents(url: configuration.baseURL, resolvingAgainstBaseURL: true) else {
             throw LLMError.invalidRequest("Invalid Gemini base URL")
@@ -85,12 +89,16 @@ public struct GeminiProvider: LLMProvider {
                     if let decoded = tc.decodedArguments() {
                         args = decoded
                     }
-                    parts.append([
+                    var functionCallPart: [String: Any] = [
                         "functionCall": [
                             "name": tc.name,
                             "args": args
                         ]
-                    ])
+                    ]
+                    if let thoughtSignature = tc.providerMetadata[Self.thoughtSignatureMetadataKey] {
+                        functionCallPart["thoughtSignature"] = thoughtSignature
+                    }
+                    parts.append(functionCallPart)
                 }
             }
 
@@ -184,7 +192,8 @@ public struct GeminiProvider: LLMProvider {
                 let toolCall = LLMToolCall(
                     id: funcCall.name ?? UUID().uuidString,
                     name: funcCall.name ?? "",
-                    arguments: argsString
+                    arguments: argsString,
+                    providerMetadata: Self.providerMetadata(for: part)
                 )
                 chunks.append(.toolCall(toolCall))
             }
@@ -240,7 +249,8 @@ public struct GeminiProvider: LLMProvider {
                     toolCalls.append(LLMToolCall(
                         id: funcCall.name ?? UUID().uuidString,
                         name: funcCall.name ?? "",
-                        arguments: argsString
+                        arguments: argsString,
+                        providerMetadata: Self.providerMetadata(for: part)
                     ))
                 }
             }
@@ -300,7 +310,7 @@ public struct GeminiProvider: LLMProvider {
         return decoded.models.map { model in
             // Gemini API returns names like "models/gemini-3.5-flash"
             // Strip the "models/" prefix to get the clean model ID
-            let cleanId = model.name.replacingOccurrences(of: "models/", with: "")
+            let cleanId = Self.normalizedModelID(model.name)
             return LLMModelInfo(
                 id: cleanId,
                 providerName: Self.name,
@@ -309,6 +319,17 @@ public struct GeminiProvider: LLMProvider {
                 capabilities: Self.capabilities(for: model)
             )
         }
+    }
+
+    private static func normalizedModelID(_ model: String) -> String {
+        model.hasPrefix("models/") ? String(model.dropFirst("models/".count)) : model
+    }
+
+    private static func providerMetadata(for part: GeminiResponse.Candidate.Content.Part) -> [String: String] {
+        guard let thoughtSignature = part.thoughtSignature else {
+            return [:]
+        }
+        return [thoughtSignatureMetadataKey: thoughtSignature]
     }
 
     private static func geminiRole(for role: LLMMessageRole) -> String {
@@ -325,7 +346,11 @@ public struct GeminiProvider: LLMProvider {
         if let supported = model.supportedGenerationMethods {
             for method in supported {
                 switch method {
-                case "generateContent": caps.insert(.chat)
+                case "generateContent":
+                    caps.insert(.chat)
+                    if !model.name.localizedCaseInsensitiveContains("embed") {
+                        caps.insert(.tools)
+                    }
                 case "countTokens": break
                 case "embedContent": break
                 default: break
@@ -344,6 +369,7 @@ private struct GeminiResponse: Decodable {
             struct Part: Decodable {
                 let text: String?
                 let functionCall: GeminiFunctionCall?
+                let thoughtSignature: String?
             }
             let role: String?
             let parts: [Part]?

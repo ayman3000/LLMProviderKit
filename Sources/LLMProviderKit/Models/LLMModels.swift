@@ -193,11 +193,18 @@ public struct LLMToolCall: Sendable, Equatable, Codable {
     public let id: String
     public let name: String
     public let arguments: String
+    public var providerMetadata: [String: String]
 
-    public init(id: String = UUID().uuidString, name: String, arguments: String) {
+    public init(
+        id: String = UUID().uuidString,
+        name: String,
+        arguments: String,
+        providerMetadata: [String: String] = [:]
+    ) {
         self.id = id
         self.name = name
         self.arguments = arguments
+        self.providerMetadata = providerMetadata
     }
 
     public func decodedArguments() -> [String: Any]? {
