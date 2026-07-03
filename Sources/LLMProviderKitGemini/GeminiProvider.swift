@@ -298,10 +298,13 @@ public struct GeminiProvider: LLMProvider {
 
         let decoded = try JSONDecoder().decode(GeminiModelsResponse.self, from: data)
         return decoded.models.map { model in
-            LLMModelInfo(
-                id: model.name,
+            // Gemini API returns names like "models/gemini-3.5-flash"
+            // Strip the "models/" prefix to get the clean model ID
+            let cleanId = model.name.replacingOccurrences(of: "models/", with: "")
+            return LLMModelInfo(
+                id: cleanId,
                 providerName: Self.name,
-                displayName: model.displayName ?? model.name,
+                displayName: model.displayName ?? cleanId,
                 contextWindow: model.inputTokenLimit,
                 capabilities: Self.capabilities(for: model)
             )
