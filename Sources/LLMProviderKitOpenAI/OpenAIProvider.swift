@@ -367,14 +367,40 @@ extension OpenAIProvider {
         if lowercased.contains("image") || lowercased.contains("dall") {
             return [.imageGeneration]
         }
+
+        // The OpenAI models endpoint can include non-chat products such as
+        // moderation, realtime, and computer-use models. Do not advertise
+        // chat/tool/vision support for those just because their IDs happen to
+        // contain a broad substring like "o".
+        if isKnownNonChatModel(lowercased) {
+            return []
+        }
+
         var capabilities: Set<LLMModelCapability> = [.chat, .textGeneration, .streaming]
-        if lowercased.contains("gpt") || lowercased.contains("o") {
+        if lowercased.contains("gpt") || isOSeriesReasoningModel(lowercased) {
             capabilities.formUnion([.tools, .vision, .imageInput, .structuredOutput])
         }
-        if lowercased.contains("gpt-5") || lowercased.contains("o") {
+        if lowercased.contains("gpt-5") || isOSeriesReasoningModel(lowercased) {
             capabilities.insert(.reasoning)
         }
         return capabilities
+    }
+
+    private static func isKnownNonChatModel(_ modelID: String) -> Bool {
+        modelID.contains("moderation") ||
+            modelID.contains("realtime") ||
+            modelID.contains("computer-use") ||
+            modelID.contains("search-preview") ||
+            modelID.contains("codex")
+    }
+
+    private static func isOSeriesReasoningModel(_ modelID: String) -> Bool {
+        // Match o-series model families as prefixes/tokens: o3, o3-mini,
+        // o4-mini, o1-preview, etc. Avoid `contains("o")`, which matches
+        // unrelated IDs like omni-moderation or computer-use-preview.
+        let tokens = modelID.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        guard let first = tokens.first else { return false }
+        return first.range(of: #"^o[1-9][a-z]*$"#, options: .regularExpression) != nil
     }
 
     static func categories(for modelID: String) -> Set<LLMModelCategory> {

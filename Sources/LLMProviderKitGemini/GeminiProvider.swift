@@ -364,10 +364,17 @@ public struct GeminiProvider: LLMProvider {
         if lowercased.contains("gemini") {
             caps.formUnion([.vision, .imageInput, .structuredOutput])
         }
-        if lowercased.contains("pro") || lowercased.contains("3.") {
+        if isLikelyReasoningModel(lowercased) {
             caps.insert(.reasoning)
         }
         return caps
+    }
+
+    private static func isLikelyReasoningModel(_ modelID: String) -> Bool {
+        // Keep this conservative for live metadata. Curated records can add
+        // reasoning for known flagship non-Pro IDs, but a broad `contains("3.")`
+        // marks every Gemini 3.x Flash/Lite model as reasoning-capable.
+        modelID.contains("-pro") || modelID.hasPrefix("gemini-3.5-")
     }
 
     private static func categories(for model: GeminiModelsResponse.Model, cleanId: String) -> Set<LLMModelCategory> {

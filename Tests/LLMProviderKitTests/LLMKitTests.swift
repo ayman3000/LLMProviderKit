@@ -194,7 +194,8 @@ struct ProviderTests {
     }
 
     @Test func geminiAvailableModelsNormalizeIDsAndMarkTools() async throws {
-        GeminiModelsMockURLProtocol.responseData = """
+        let apiKey = "normalize-test"
+        GeminiModelsMockURLProtocol.setResponseData("""
         {
           "models": [{
             "name": "models/gemini-2.5-flash",
@@ -203,13 +204,13 @@ struct ProviderTests {
             "supportedGenerationMethods": ["generateContent", "countTokens"]
           }]
         }
-        """.data(using: .utf8)!
+        """.data(using: .utf8)!, forAPIKey: apiKey)
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GeminiModelsMockURLProtocol.self]
         let session = URLSession(configuration: configuration)
         let provider = GeminiProvider(
-            configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash"),
+            configuration: GeminiProvider.gemini(apiKey: apiKey, model: "gemini-2.5-flash"),
             urlSession: session
         )
 
@@ -355,6 +356,14 @@ struct ProviderTests {
 
 private final class GeminiModelsMockURLProtocol: URLProtocol {
     static var responseData = Data()
+    private static let lock = NSLock()
+    private static var responseDataByAPIKey: [String: Data] = [:]
+
+    static func setResponseData(_ data: Data, forAPIKey apiKey: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        responseDataByAPIKey[apiKey] = data
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -372,7 +381,14 @@ private final class GeminiModelsMockURLProtocol: URLProtocol {
             headerFields: ["Content-Type": "application/json"]
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Self.responseData)
+        let apiKey = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first { $0.name == "key" }?
+            .value
+        let data: Data = Self.lock.withLock {
+            apiKey.flatMap { Self.responseDataByAPIKey[$0] } ?? Self.responseData
+        }
+        client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
 
@@ -459,6 +475,61 @@ extension ProviderTests {
         #expect(GeminiProvider.curatedModels.contains { $0.capabilities.contains(.vision) })
         #expect(AnthropicProvider.curatedModels.contains { $0.releaseStage == .stable })
         #expect(OllamaProvider.suggestedModels.contains { $0.categories.contains(.embedding) })
+    }
+
+    @Test func openAICapabilityHeuristicsDoNotOvermatchLetterO() async throws {
+        let moderation = OpenAIProvider.capabilities(for: "omni-moderation-latest")
+        #expect(!moderation.contains(.tools))
+        #expect(!moderation.contains(.vision))
+        #expect(!moderation.contains(.reasoning))
+        #expect(!OpenAIProvider.categories(for: "omni-moderation-latest").contains(.multimodal))
+
+        let computerUse = OpenAIProvider.capabilities(for: "computer-use-preview")
+        #expect(!computerUse.contains(.tools))
+        #expect(!computerUse.contains(.vision))
+        #expect(!computerUse.contains(.reasoning))
+
+        let oSeries = OpenAIProvider.capabilities(for: "o4-mini")
+        #expect(oSeries.contains(.tools))
+        #expect(oSeries.contains(.vision))
+        #expect(oSeries.contains(.reasoning))
+    }
+
+    @Test func geminiCapabilityHeuristicsDoNotMarkAllThreeSeriesAsReasoning() async throws {
+        let apiKey = "reasoning-test"
+        GeminiModelsMockURLProtocol.setResponseData("""
+        {
+          "models": [
+            {
+              "name": "models/gemini-3.1-flash-lite",
+              "displayName": "Gemini 3.1 Flash-Lite",
+              "inputTokenLimit": 1048576,
+              "supportedGenerationMethods": ["generateContent", "countTokens"]
+            },
+            {
+              "name": "models/gemini-3.1-pro",
+              "displayName": "Gemini 3.1 Pro",
+              "inputTokenLimit": 1048576,
+              "supportedGenerationMethods": ["generateContent", "countTokens"]
+            }
+          ]
+        }
+        """.data(using: .utf8)!, forAPIKey: apiKey)
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [GeminiModelsMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let provider = GeminiProvider(
+            configuration: GeminiProvider.gemini(apiKey: apiKey, model: "gemini-3.1-flash-lite"),
+            urlSession: session
+        )
+
+        let models = try await provider.availableModels()
+        let flashLite = try #require(models.first { $0.id == "gemini-3.1-flash-lite" })
+        let pro = try #require(models.first { $0.id == "gemini-3.1-pro" })
+
+        #expect(!flashLite.capabilities.contains(.reasoning))
+        #expect(pro.capabilities.contains(.reasoning))
     }
 }
 
