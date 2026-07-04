@@ -426,42 +426,56 @@ extension AnthropicProvider {
             providerName: name,
             displayName: "Claude Fable 5",
             contextWindow: 1_000_000,
-            capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
+            capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable,
+            notes: "Most capable Claude model in the curated list."
         ),
         LLMModelInfo(
             id: AnthropicModel.opus48,
             providerName: name,
             displayName: "Claude Opus 4.8",
             contextWindow: 1_000_000,
-            capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
+            capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
         ),
         LLMModelInfo(
             id: AnthropicModel.sonnet46,
             providerName: name,
             displayName: "Claude Sonnet 4.6",
             contextWindow: 1_000_000,
-            capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
+            capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable,
+            notes: "Default balance of intelligence, latency, and cost."
         ),
         LLMModelInfo(
             id: AnthropicModel.haiku45,
             providerName: name,
             displayName: "Claude Haiku 4.5",
             contextWindow: 200_000,
-            capabilities: [.chat, .streaming, .tools, .vision]
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
         ),
         LLMModelInfo(
             id: AnthropicModel.sonnet4,
             providerName: name,
             displayName: "Claude Sonnet 4 (legacy)",
             contextWindow: 200_000,
-            capabilities: [.chat, .streaming, .reasoning, .tools, .vision]
+            capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .legacy
         ),
         LLMModelInfo(
             id: AnthropicModel.sonnet35,
             providerName: name,
             displayName: "Claude 3.5 Sonnet (legacy)",
             contextWindow: 200_000,
-            capabilities: [.chat, .streaming, .tools, .vision]
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .legacy
         ),
     ]
 

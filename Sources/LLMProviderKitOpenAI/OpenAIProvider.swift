@@ -189,6 +189,7 @@ public struct OpenAIProvider: LLMProvider {
         let (data, response) = try await urlSession.data(for: urlRequest)
         try Self.verifyHTTPResponse(response, data: data)
 
+        let curatedByID = Dictionary(uniqueKeysWithValues: Self.curatedModels.map { ($0.id, $0) })
         let decoded = try JSONDecoder().decode(OpenAIModelsResponse.self, from: data)
         return decoded.data.map { model in
             LLMModelInfo(
@@ -196,8 +197,9 @@ public struct OpenAIProvider: LLMProvider {
                 providerName: Self.name,
                 displayName: model.id,
                 contextWindow: nil,
-                capabilities: [.chat, .streaming]
-            )
+                capabilities: Self.capabilities(for: model.id),
+                categories: Self.categories(for: model.id)
+            ).enriched(with: curatedByID[model.id])
         }
     }
 }
@@ -302,6 +304,90 @@ public enum OpenAIModel {
 // MARK: - Configuration presets
 
 extension OpenAIProvider {
+    public static let curatedModels: [LLMModelInfo] = [
+        LLMModelInfo(
+            id: OpenAIModel.gpt55,
+            providerName: name,
+            displayName: "GPT-5.5",
+            contextWindow: 1_000_000,
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .reasoning, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable,
+            notes: "Flagship model for complex reasoning and coding."
+        ),
+        LLMModelInfo(
+            id: OpenAIModel.gpt54,
+            providerName: name,
+            displayName: "GPT-5.4",
+            contextWindow: 1_000_000,
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .reasoning, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable,
+            notes: "Frontier model with lower cost than the flagship tier."
+        ),
+        LLMModelInfo(
+            id: OpenAIModel.gpt54Mini,
+            providerName: name,
+            displayName: "GPT-5.4 mini",
+            contextWindow: 400_000,
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .reasoning, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable,
+            notes: "Fast, cost-efficient model suited to app agents and subagents."
+        ),
+        LLMModelInfo(
+            id: OpenAIModel.gpt4o,
+            providerName: name,
+            displayName: "GPT-4o",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .legacy
+        ),
+        LLMModelInfo(
+            id: OpenAIModel.gpt4oMini,
+            providerName: name,
+            displayName: "GPT-4o mini",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .legacy
+        ),
+    ]
+
+    static func capabilities(for modelID: String) -> Set<LLMModelCapability> {
+        let lowercased = modelID.lowercased()
+        if lowercased.contains("embedding") || lowercased.contains("embed") {
+            return [.embeddings]
+        }
+        if lowercased.contains("tts") || lowercased.contains("speech") {
+            return [.textToSpeech, .audioGeneration]
+        }
+        if lowercased.contains("whisper") || lowercased.contains("transcribe") {
+            return [.speechToText, .audioInput]
+        }
+        if lowercased.contains("image") || lowercased.contains("dall") {
+            return [.imageGeneration]
+        }
+        var capabilities: Set<LLMModelCapability> = [.chat, .textGeneration, .streaming]
+        if lowercased.contains("gpt") || lowercased.contains("o") {
+            capabilities.formUnion([.tools, .vision, .imageInput, .structuredOutput])
+        }
+        if lowercased.contains("gpt-5") || lowercased.contains("o") {
+            capabilities.insert(.reasoning)
+        }
+        return capabilities
+    }
+
+    static func categories(for modelID: String) -> Set<LLMModelCategory> {
+        let capabilities = capabilities(for: modelID)
+        var categories: Set<LLMModelCategory> = []
+        if !capabilities.intersection([.chat, .textGeneration, .tools, .reasoning]).isEmpty { categories.insert(.text) }
+        if !capabilities.intersection([.vision, .imageInput]).isEmpty { categories.formUnion([.vision, .multimodal]) }
+        if capabilities.contains(.imageGeneration) { categories.insert(.image) }
+        if !capabilities.intersection([.audioInput, .audioGeneration, .speechToText, .textToSpeech]).isEmpty { categories.insert(.audio) }
+        if capabilities.contains(.embeddings) { categories.insert(.embedding) }
+        return categories
+    }
+
     public static func openAI(apiKey: String, model: String = OpenAIModel.gpt54Mini) -> LLMProviderConfiguration {
         LLMProviderConfiguration(
             name: name,

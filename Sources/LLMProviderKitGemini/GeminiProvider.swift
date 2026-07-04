@@ -306,18 +306,20 @@ public struct GeminiProvider: LLMProvider {
         let (data, response) = try await urlSession.data(for: urlRequest)
         try Self.verifyHTTPResponse(response, data: data)
 
+        let curatedByID = Dictionary(uniqueKeysWithValues: Self.curatedModels.map { ($0.id, $0) })
         let decoded = try JSONDecoder().decode(GeminiModelsResponse.self, from: data)
         return decoded.models.map { model in
             // Gemini API returns names like "models/gemini-3.5-flash"
             // Strip the "models/" prefix to get the clean model ID
-            let cleanId = Self.normalizedModelID(model.name)
+            let cleanId = model.name.replacingOccurrences(of: "models/", with: "")
             return LLMModelInfo(
                 id: cleanId,
                 providerName: Self.name,
                 displayName: model.displayName ?? cleanId,
                 contextWindow: model.inputTokenLimit,
-                capabilities: Self.capabilities(for: model)
-            )
+                capabilities: Self.capabilities(for: model, cleanId: cleanId),
+                categories: Self.categories(for: model, cleanId: cleanId)
+            ).enriched(with: curatedByID[cleanId])
         }
     }
 
@@ -341,23 +343,40 @@ public struct GeminiProvider: LLMProvider {
         }
     }
 
-    private static func capabilities(for model: GeminiModelsResponse.Model) -> Set<LLMModelCapability> {
-        var caps: Set<LLMModelCapability> = [.chat, .streaming]
+    private static func capabilities(for model: GeminiModelsResponse.Model, cleanId: String) -> Set<LLMModelCapability> {
+        let lowercased = cleanId.lowercased()
+        if lowercased.contains("embed") {
+            return [.embeddings]
+        }
+
+        var caps: Set<LLMModelCapability> = [.chat, .textGeneration, .streaming]
         if let supported = model.supportedGenerationMethods {
             for method in supported {
                 switch method {
                 case "generateContent":
-                    caps.insert(.chat)
-                    if !model.name.localizedCaseInsensitiveContains("embed") {
-                        caps.insert(.tools)
-                    }
+                    caps.formUnion([.chat, .textGeneration, .tools])
                 case "countTokens": break
-                case "embedContent": break
+                case "embedContent": caps.insert(.embeddings)
                 default: break
                 }
             }
         }
+        if lowercased.contains("gemini") {
+            caps.formUnion([.vision, .imageInput, .structuredOutput])
+        }
+        if lowercased.contains("pro") || lowercased.contains("3.") {
+            caps.insert(.reasoning)
+        }
         return caps
+    }
+
+    private static func categories(for model: GeminiModelsResponse.Model, cleanId: String) -> Set<LLMModelCategory> {
+        let caps = capabilities(for: model, cleanId: cleanId)
+        var categories: Set<LLMModelCategory> = []
+        if !caps.intersection([.chat, .textGeneration, .tools, .reasoning]).isEmpty { categories.insert(.text) }
+        if !caps.intersection([.vision, .imageInput]).isEmpty { categories.formUnion([.vision, .multimodal]) }
+        if caps.contains(.embeddings) { categories.insert(.embedding) }
+        return categories
     }
 }
 
@@ -485,6 +504,68 @@ public enum GeminiModel {
 // MARK: - Configuration presets
 
 extension GeminiProvider {
+    public static let curatedModels: [LLMModelInfo] = [
+        LLMModelInfo(
+            id: GeminiModel.flash35,
+            providerName: name,
+            displayName: "Gemini 3.5 Flash",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .reasoning, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable,
+            notes: "Stable Gemini 3.x model for agentic and coding workloads."
+        ),
+        LLMModelInfo(
+            id: GeminiModel.flashLite31,
+            providerName: name,
+            displayName: "Gemini 3.1 Flash-Lite",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable,
+            notes: "Low-cost Gemini 3.x option."
+        ),
+        LLMModelInfo(
+            id: GeminiModel.pro31,
+            providerName: name,
+            displayName: "Gemini 3.1 Pro",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .reasoning, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .preview,
+            notes: "Advanced Gemini 3.x option."
+        ),
+        LLMModelInfo(
+            id: GeminiModel.flash30,
+            providerName: name,
+            displayName: "Gemini 3 Flash",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .preview
+        ),
+        LLMModelInfo(
+            id: GeminiModel.flash,
+            providerName: name,
+            displayName: "Gemini 2.5 Flash",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
+            id: GeminiModel.flashLite,
+            providerName: name,
+            displayName: "Gemini 2.5 Flash-Lite",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
+            id: GeminiModel.pro,
+            providerName: name,
+            displayName: "Gemini 2.5 Pro",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .reasoning, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
+        ),
+    ]
+
     public static func gemini(apiKey: String, model: String = GeminiModel.flash35) -> LLMProviderConfiguration {
         LLMProviderConfiguration(
             name: name,

@@ -207,25 +207,46 @@ public struct OllamaProvider: LLMProvider {
                 providerName: Self.name,
                 displayName: model.name,
                 contextWindow: model.details?.contextLength,
-                capabilities: Self.capabilities(for: model)
+                capabilities: Self.capabilities(for: model),
+                categories: Self.categories(for: model)
             )
         }
     }
 
     private static func capabilities(for model: OllamaTagResponse.Model) -> Set<LLMModelCapability> {
-        var caps: Set<LLMModelCapability> = [.chat, .streaming]
+        let lowercased = model.name.lowercased()
+        if lowercased.contains("embed") || lowercased.contains("nomic") || lowercased.contains("mxbai") {
+            return [.embeddings]
+        }
+
+        var caps: Set<LLMModelCapability> = [.chat, .textGeneration, .streaming]
         if let capabilities = model.capabilities {
             for capability in capabilities {
                 switch capability {
-                case "vision": caps.insert(.vision)
+                case "vision": caps.formUnion([.vision, .imageInput])
                 case "tools": caps.insert(.tools)
-                case "completion": break // already covered by chat
+                case "completion": break // already covered by chat/textGeneration
                 case "thinking": caps.insert(.reasoning)
                 default: break
                 }
             }
         }
+        if lowercased.contains("llava") || lowercased.contains("bakllava") || lowercased.contains("vision") {
+            caps.formUnion([.vision, .imageInput])
+        }
+        if lowercased.contains("qwen") || lowercased.contains("llama") || lowercased.contains("mistral") {
+            caps.insert(.tools)
+        }
         return caps
+    }
+
+    private static func categories(for model: OllamaTagResponse.Model) -> Set<LLMModelCategory> {
+        let caps = capabilities(for: model)
+        var categories: Set<LLMModelCategory> = []
+        if !caps.intersection([.chat, .textGeneration, .tools, .reasoning]).isEmpty { categories.insert(.text) }
+        if !caps.intersection([.vision, .imageInput]).isEmpty { categories.formUnion([.vision, .multimodal]) }
+        if caps.contains(.embeddings) { categories.insert(.embedding) }
+        return categories
     }
 }
 
@@ -405,6 +426,41 @@ public enum OllamaModel {
 // MARK: - Configuration presets
 
 extension OllamaProvider {
+    public static let suggestedModels: [LLMModelInfo] = [
+        LLMModelInfo(
+            id: OllamaModel.llama3_2,
+            providerName: name,
+            displayName: "Llama 3.2",
+            capabilities: [.chat, .textGeneration, .streaming, .tools],
+            categories: [.text],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
+            id: OllamaModel.llama3_1,
+            providerName: name,
+            displayName: "Llama 3.1",
+            capabilities: [.chat, .textGeneration, .streaming, .tools],
+            categories: [.text],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
+            id: OllamaModel.qwen2_5,
+            providerName: name,
+            displayName: "Qwen 2.5",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .reasoning],
+            categories: [.text],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
+            id: OllamaModel.nomicEmbedText,
+            providerName: name,
+            displayName: "Nomic Embed Text",
+            capabilities: [.embeddings],
+            categories: [.embedding],
+            releaseStage: .stable
+        ),
+    ]
+
     /// Convenience configuration for a local Ollama server.
     ///
     /// - Parameters:

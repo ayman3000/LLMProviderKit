@@ -379,6 +379,89 @@ private final class GeminiModelsMockURLProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
+extension ProviderTests {
+    // MARK: - Model metadata and registry tests
+
+    @Test func modelInfoOldInitializerStillWorks() async throws {
+        let model = LLMModelInfo(
+            id: "test-model",
+            providerName: "test",
+            displayName: "Test Model",
+            capabilities: [.chat, .streaming]
+        )
+
+        #expect(model.id == "test-model")
+        #expect(model.capabilities.contains(.chat))
+        #expect(model.categories.isEmpty)
+        #expect(model.releaseStage == nil)
+        #expect(model.isDeprecated == false)
+    }
+
+    @Test func modelRegistryFiltersByCategoryAndCapabilities() async throws {
+        let registry = LLMModelRegistry()
+        await registry.register([
+            LLMModelInfo(
+                id: "text-tools",
+                providerName: "test",
+                capabilities: [.chat, .tools],
+                categories: [.text]
+            ),
+            LLMModelInfo(
+                id: "vision-tools",
+                providerName: "test",
+                capabilities: [.chat, .tools, .vision],
+                categories: [.text, .vision, .multimodal]
+            ),
+            LLMModelInfo(
+                id: "embed",
+                providerName: "test",
+                capabilities: [.embeddings],
+                categories: [.embedding]
+            )
+        ], for: "test")
+
+        let toolModels = await registry.models(providerName: "test", matching: [.tools])
+        #expect(toolModels.map(\.id).sorted() == ["text-tools", "vision-tools"])
+
+        let visionTools = await registry.models(providerName: "test", category: .vision, matching: [.tools])
+        #expect(visionTools.map(\.id) == ["vision-tools"])
+    }
+
+    @Test func modelRegistryLiveWithCuratedMetadataEnrichesLiveRecords() async throws {
+        let live = [
+            LLMModelInfo(id: "known", providerName: "test", displayName: nil, capabilities: [.chat])
+        ]
+        let curated = [
+            LLMModelInfo(
+                id: "known",
+                providerName: "test",
+                displayName: "Known Model",
+                contextWindow: 1234,
+                capabilities: [.tools, .streaming],
+                categories: [.text],
+                releaseStage: .stable,
+                notes: "curated"
+            )
+        ]
+
+        let merged = LLMModelRegistry.merge(live: live, curated: curated, strategy: .liveWithCuratedMetadata)
+        let model = try #require(merged.first)
+        #expect(model.displayName == "Known Model")
+        #expect(model.contextWindow == 1234)
+        #expect(model.capabilities.contains(.chat))
+        #expect(model.capabilities.contains(.tools))
+        #expect(model.categories.contains(.text))
+        #expect(model.releaseStage == .stable)
+    }
+
+    @Test func curatedProviderModelsHaveCategories() async throws {
+        #expect(OpenAIProvider.curatedModels.contains { $0.categories.contains(.multimodal) })
+        #expect(GeminiProvider.curatedModels.contains { $0.capabilities.contains(.vision) })
+        #expect(AnthropicProvider.curatedModels.contains { $0.releaseStage == .stable })
+        #expect(OllamaProvider.suggestedModels.contains { $0.categories.contains(.embedding) })
+    }
+}
+
 // MARK: - LLMStreamChunk comparison helper for tests
 
 func chunksEqual(_ lhs: LLMStreamChunk, _ rhs: LLMStreamChunk) -> Bool {
