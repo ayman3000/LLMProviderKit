@@ -17,6 +17,8 @@
 
 A protocol-oriented Swift package that unifies chat completions, streaming, tool calling, and vision across multiple LLM providers — with native provider APIs, not OpenAI-compat wrappers.
 
+> If LLMProviderKit saves you time integrating AI providers in Swift, please consider giving it a ⭐ — it helps more Swift developers discover the project.
+
 ```swift
 let provider: any LLMProvider
 
