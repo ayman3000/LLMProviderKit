@@ -103,25 +103,32 @@ extension LLMProvider {
                     let (bytes, response) = try await self.urlSession.bytes(for: urlRequest)
                     try Self.verifyHTTPResponse(response, data: nil)
 
-                    var pendingLine = ""
+                    var pendingLineBytes = Data()
                     for try await byte in bytes {
-                        let char = Character(UnicodeScalar(byte))
-                        if char.isNewline {
-                            if !pendingLine.isEmpty {
-                                let chunks = try self.parseStreamLine(pendingLine, request: resolvedRequest)
+                        if byte == 0x0A { // newline
+                            if !pendingLineBytes.isEmpty {
+                                if pendingLineBytes.last == 0x0D { pendingLineBytes.removeLast() }
+                                guard let line = String(data: pendingLineBytes, encoding: .utf8) else {
+                                    throw LLMError.invalidResponse("Streaming response contained a non-UTF-8 line.")
+                                }
+                                let chunks = try self.parseStreamLine(line, request: resolvedRequest)
                                 for chunk in chunks {
                                     continuation.yield(chunk)
                                     if case .finish = chunk { break }
                                 }
                             }
-                            pendingLine = ""
+                            pendingLineBytes.removeAll(keepingCapacity: true)
                         } else {
-                            pendingLine.append(char)
+                            pendingLineBytes.append(byte)
                         }
                     }
 
-                    if !pendingLine.isEmpty {
-                        let chunks = try self.parseStreamLine(pendingLine, request: resolvedRequest)
+                    if !pendingLineBytes.isEmpty {
+                        if pendingLineBytes.last == 0x0D { pendingLineBytes.removeLast() }
+                        guard let line = String(data: pendingLineBytes, encoding: .utf8) else {
+                            throw LLMError.invalidResponse("Streaming response contained a non-UTF-8 line.")
+                        }
+                        let chunks = try self.parseStreamLine(line, request: resolvedRequest)
                         for chunk in chunks { continuation.yield(chunk) }
                     }
 

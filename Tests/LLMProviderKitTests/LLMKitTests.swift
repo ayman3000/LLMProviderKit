@@ -352,6 +352,72 @@ struct ProviderTests {
             _ = try await service.provider(named: "anthropic")
         }
     }
+
+    @Test func streamingDecodesUTF8LinesWithoutCorruptingNonASCIIText() async throws {
+        let streamedText = "Hello é 😊 مرحبا"
+        UTF8StreamingMockURLProtocol.responseData = "data: \(streamedText)\n".data(using: .utf8)!
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [UTF8StreamingMockURLProtocol.self]
+        let provider = UTF8StreamingTestProvider(urlSession: URLSession(configuration: configuration))
+        let request = LLMRequest(model: "utf8-test", messages: [.user("Stream UTF-8")])
+
+        var collected = ""
+        for try await chunk in provider.stream(request) {
+            if case .text(let text) = chunk {
+                collected += text
+            }
+        }
+
+        #expect(collected == streamedText)
+    }
+}
+
+private final class UTF8StreamingMockURLProtocol: URLProtocol {
+    static var responseData = Data()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "text/event-stream; charset=utf-8"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.responseData)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private struct UTF8StreamingTestProvider: LLMProvider {
+    static let name = "utf8-streaming-test"
+    let configuration = LLMProviderConfiguration(
+        name: name,
+        baseURL: URL(string: "https://example.test")!
+    )
+    let urlSession: URLSession
+
+    func prepareRequest(_ request: LLMRequest, stream: Bool) throws -> URLRequest {
+        URLRequest(url: URL(string: "https://example.test/stream")!)
+    }
+
+    func parseStreamLine(_ line: String, request: LLMRequest) throws -> [LLMStreamChunk] {
+        guard line.hasPrefix("data: ") else { return [] }
+        return [.text(String(line.dropFirst("data: ".count)))]
+    }
+
+    func parseResponse(_ data: Data, request: LLMRequest) throws -> LLMResponse {
+        LLMResponse(
+            text: String(data: data, encoding: .utf8) ?? "",
+            request: request,
+            providerName: Self.name
+        )
+    }
 }
 
 private final class GeminiModelsMockURLProtocol: URLProtocol {

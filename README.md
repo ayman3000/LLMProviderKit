@@ -509,7 +509,7 @@ swift build
 swift test
 ```
 
-Includes 22 unit tests for parsing, streaming logic, model registry, tool calling, and image encoding for all four providers — no network calls.
+Includes 33 unit tests for parsing, streaming logic, UTF-8 streaming, model registry, tool calling, and image encoding for all four providers — no network calls.
 
 ---
 
