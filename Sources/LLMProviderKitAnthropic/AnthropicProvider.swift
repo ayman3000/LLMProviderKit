@@ -28,7 +28,10 @@ public struct AnthropicProvider: LLMProvider {
         if let apiKey = configuration.apiKey {
             urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         }
-        urlRequest.setValue("LLMProviderKit/1.0", forHTTPHeaderField: "anthropic-version")
+        // Anthropic requires a dated API version string; an arbitrary value is rejected
+        // with HTTP 400 "invalid anthropic-version".
+        urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        urlRequest.setValue("LLMProviderKit/1.0", forHTTPHeaderField: "User-Agent")
 
         let maxTokens = request.maxTokens ?? 4096
 
@@ -405,6 +408,8 @@ public enum AnthropicModel {
     // Current models
     public static let fable5 = "claude-fable-5"
     public static let opus48 = "claude-opus-4-8"
+    public static let opus47 = "claude-opus-4-7"
+    public static let opus46 = "claude-opus-4-6"
     public static let sonnet46 = "claude-sonnet-4-6"
     public static let haiku45 = "claude-haiku-4-5-20251001"
     // Legacy
@@ -435,6 +440,24 @@ extension AnthropicProvider {
             id: AnthropicModel.opus48,
             providerName: name,
             displayName: "Claude Opus 4.8",
+            contextWindow: 1_000_000,
+            capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
+            id: AnthropicModel.opus47,
+            providerName: name,
+            displayName: "Claude Opus 4.7",
+            contextWindow: 1_000_000,
+            capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
+            id: AnthropicModel.opus46,
+            providerName: name,
+            displayName: "Claude Opus 4.6",
             contextWindow: 1_000_000,
             capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
             categories: [.text, .vision, .multimodal],

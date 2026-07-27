@@ -701,6 +701,41 @@ extension ProviderTests {
         #expect(firstMsg["content"] is String)
     }
 
+    @Test func anthropicSendsValidVersionHeader() async throws {
+        let provider = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "test", model: "claude-3-5-sonnet-20241022"))
+        let request = LLMRequest(model: "claude-3-5-sonnet-20241022", messages: [.user("Hi")])
+        let urlRequest = try provider.prepareRequest(request, stream: false)
+
+        // Anthropic requires a dated version string; the branding string belongs in User-Agent.
+        #expect(urlRequest.value(forHTTPHeaderField: "anthropic-version") == "2023-06-01")
+        #expect(urlRequest.value(forHTTPHeaderField: "anthropic-version") != "LLMProviderKit/1.0")
+    }
+
+    @Test func geminiSendsToolResultsAsUserRole() async throws {
+        let provider = GeminiProvider(configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash"))
+        let request = LLMRequest(
+            model: "gemini-2.5-flash",
+            messages: [
+                .user("What time is it?"),
+                .assistant(content: "", toolCalls: [
+                    LLMToolCall(id: "call_1", name: "current_datetime", arguments: "{}")
+                ]),
+                .tool("{\"result\":\"noon\"}", toolCallId: "current_datetime")
+            ]
+        )
+
+        let body = try #require(provider.prepareRequest(request, stream: false).httpBody)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let contents = try #require(json["contents"] as? [[String: Any]])
+
+        // The turn carrying the functionResponse part must use the "user" role.
+        let functionResponseTurn = try #require(contents.first { turn in
+            guard let parts = turn["parts"] as? [[String: Any]] else { return false }
+            return parts.contains { $0["functionResponse"] != nil }
+        })
+        #expect(functionResponseTurn["role"] as? String == "user")
+    }
+
     @Test func ollamaAssistantToolCallsSerializeArgumentsAsJSONObject() async throws {
         let ollama = OllamaProvider(configuration: OllamaProvider.local(model: "qwen3:0.6b"))
         let request = LLMRequest(
