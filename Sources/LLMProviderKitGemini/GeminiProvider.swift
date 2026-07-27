@@ -339,7 +339,10 @@ public struct GeminiProvider: LLMProvider {
         case .system: return "user"
         case .user: return "user"
         case .assistant: return "model"
-        case .tool: return "model" // Gemini uses "model" role for function responses
+        // Gemini only accepts "user" and "model" roles in `contents`. Function
+        // responses (`functionResponse` parts) must be sent in a "user" turn;
+        // sending them as "model" is rejected/mishandled by the API.
+        case .tool: return "user"
         }
     }
 
@@ -374,7 +377,7 @@ public struct GeminiProvider: LLMProvider {
         // Keep this conservative for live metadata. Curated records can add
         // reasoning for known flagship non-Pro IDs, but a broad `contains("3.")`
         // marks every Gemini 3.x Flash/Lite model as reasoning-capable.
-        modelID.contains("-pro") || modelID.hasPrefix("gemini-3.5-")
+        modelID.contains("-pro") || modelID.hasPrefix("gemini-3.5-") || modelID.hasPrefix("gemini-3.6-")
     }
 
     private static func categories(for model: GeminiModelsResponse.Model, cleanId: String) -> Set<LLMModelCategory> {
@@ -498,7 +501,9 @@ private struct GeminiModelsResponse: Decodable {
 
 public enum GeminiModel {
     // Gemini 3.x family (current)
+    public static let flash36 = "gemini-3.6-flash"
     public static let flash35 = "gemini-3.5-flash"
+    public static let flashLite35 = "gemini-3.5-flash-lite"
     public static let flashLite31 = "gemini-3.1-flash-lite"
     public static let pro31 = "gemini-3.1-pro"
     public static let flash30 = "gemini-3-flash"
@@ -513,6 +518,15 @@ public enum GeminiModel {
 extension GeminiProvider {
     public static let curatedModels: [LLMModelInfo] = [
         LLMModelInfo(
+            id: GeminiModel.flash36,
+            providerName: name,
+            displayName: "Gemini 3.6 Flash",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .reasoning, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable,
+            notes: "Latest Gemini Flash — stronger agentic/multimodal performance at lower cost than 3.5 Flash."
+        ),
+        LLMModelInfo(
             id: GeminiModel.flash35,
             providerName: name,
             displayName: "Gemini 3.5 Flash",
@@ -520,6 +534,15 @@ extension GeminiProvider {
             categories: [.text, .vision, .multimodal],
             releaseStage: .stable,
             notes: "Stable Gemini 3.x model for agentic and coding workloads."
+        ),
+        LLMModelInfo(
+            id: GeminiModel.flashLite35,
+            providerName: name,
+            displayName: "Gemini 3.5 Flash-Lite",
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable,
+            notes: "Fastest, lowest-cost model in the 3.5 family for high-throughput execution."
         ),
         LLMModelInfo(
             id: GeminiModel.flashLite31,
@@ -573,7 +596,7 @@ extension GeminiProvider {
         ),
     ]
 
-    public static func gemini(apiKey: String, model: String = GeminiModel.flash35) -> LLMProviderConfiguration {
+    public static func gemini(apiKey: String, model: String = GeminiModel.flash36) -> LLMProviderConfiguration {
         LLMProviderConfiguration(
             name: name,
             baseURL: URL(string: "https://generativelanguage.googleapis.com/v1beta")!,

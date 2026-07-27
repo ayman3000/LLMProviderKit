@@ -291,7 +291,9 @@ private struct OpenAIModelsResponse: Decodable {
 // MARK: - Model constants
 
 public enum OpenAIModel {
-    // GPT-5.5 family (current flagship)
+    // GPT-5.6 family (current flagship). `gpt-5.6` is an alias that routes to GPT-5.6 Sol.
+    public static let gpt56 = "gpt-5.6"
+    // GPT-5.5 family
     public static let gpt55 = "gpt-5.5"
     // GPT-5.4 family
     public static let gpt54 = "gpt-5.4"
@@ -306,6 +308,16 @@ public enum OpenAIModel {
 extension OpenAIProvider {
     public static let curatedModels: [LLMModelInfo] = [
         LLMModelInfo(
+            id: OpenAIModel.gpt56,
+            providerName: name,
+            displayName: "GPT-5.6",
+            contextWindow: 1_000_000,
+            capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .reasoning, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable,
+            notes: "Current flagship (alias for GPT-5.6 Sol) — most intelligent and token-efficient for complex work."
+        ),
+        LLMModelInfo(
             id: OpenAIModel.gpt55,
             providerName: name,
             displayName: "GPT-5.5",
@@ -313,7 +325,7 @@ extension OpenAIProvider {
             capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .reasoning, .structuredOutput],
             categories: [.text, .vision, .multimodal],
             releaseStage: .stable,
-            notes: "Flagship model for complex reasoning and coding."
+            notes: "Previous flagship for complex reasoning and coding."
         ),
         LLMModelInfo(
             id: OpenAIModel.gpt54,
