@@ -43,10 +43,34 @@ public protocol LLMProvider: Sendable {
     /// Not every provider exposes a model list endpoint. The default
     /// implementation throws `LLMError.unsupportedOperation`.
     func availableModels() async throws -> [LLMModelInfo]
+
+    /// Non-streaming completion. Declared as a requirement (with a default HTTP
+    /// implementation below) so an **in-process** provider — e.g. an on-device
+    /// MLX/llama.cpp backend — can override it directly instead of going through
+    /// `prepareRequest`/`parseResponse`. HTTP providers rely on the default.
+    func complete(_ request: LLMRequest) async throws -> LLMResponse
+
+    /// Streaming completion. A requirement for the same reason as `complete`.
+    func stream(_ request: LLMRequest) -> AsyncThrowingStream<LLMStreamChunk, Error>
 }
 
 extension LLMProvider {
     public var urlSession: URLSession { .shared }
+
+    // Default (throwing) implementations of the HTTP-shaped hooks, so a provider
+    // that overrides `complete`/`stream` (in-process, no URLRequest) doesn't have
+    // to implement them. HTTP providers implement all three as before.
+    public func prepareRequest(_ request: LLMRequest, stream: Bool) throws -> URLRequest {
+        throw LLMError.unsupportedOperation("\(Self.name) does not build URL requests (override complete/stream instead).")
+    }
+
+    public func parseStreamLine(_ line: String, request: LLMRequest) throws -> [LLMStreamChunk] {
+        []
+    }
+
+    public func parseResponse(_ data: Data, request: LLMRequest) throws -> LLMResponse {
+        throw LLMError.unsupportedOperation("\(Self.name) does not parse HTTP responses (override complete instead).")
+    }
 
     public func resolvedModel(for request: LLMRequest) async throws -> String {
         if !request.model.isEmpty { return request.model }
