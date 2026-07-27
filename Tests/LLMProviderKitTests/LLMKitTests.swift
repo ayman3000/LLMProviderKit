@@ -764,3 +764,64 @@ extension ProviderTests {
         #expect(secondArgs["message"] as? String == "SwiftAgentKit")
     }
 }
+
+// MARK: - In-process provider (the pattern an on-device MLX backend uses)
+
+/// A provider that generates in-process — no HTTP. It overrides `complete`/
+/// `stream` and never touches `prepareRequest`/`parseResponse`. This is exactly
+/// how an `MLXProvider` will plug in.
+struct EchoLocalProvider: LLMProvider {
+    static let name = "echo-local"
+    let configuration: LLMProviderConfiguration
+
+    private func reply(_ request: LLMRequest) -> String {
+        "echo: " + (request.messages.last(where: { $0.role == .user })?.content ?? "")
+    }
+
+    func complete(_ request: LLMRequest) async throws -> LLMResponse {
+        LLMResponse(text: reply(request), finishReason: .stop, request: request, providerName: Self.name)
+    }
+
+    func stream(_ request: LLMRequest) -> AsyncThrowingStream<LLMStreamChunk, Error> {
+        let text = reply(request)
+        return AsyncThrowingStream { continuation in
+            continuation.yield(.text(text))
+            continuation.yield(.finish(reason: .stop, usage: nil))
+            continuation.finish()
+        }
+    }
+}
+
+struct InProcessProviderTests {
+    private func request() -> LLMRequest {
+        LLMRequest(model: "local", messages: [LLMMessage(role: .user, content: "hi there")])
+    }
+
+    /// Called through the existential `any LLMProvider`, the override must win —
+    /// proving `complete` is a dynamically-dispatched requirement, not a static
+    /// extension method (which would call the HTTP default and throw).
+    @Test func inProcessCompleteIsDynamicallyDispatched() async throws {
+        let provider: any LLMProvider = EchoLocalProvider(configuration: LLMProviderConfiguration(name: "echo-local", baseURL: URL(string: "inprocess://local")!))
+        let response = try await provider.complete(request())
+        #expect(response.text == "echo: hi there")
+        #expect(response.providerName == "echo-local")
+    }
+
+    @Test func inProcessStreamIsDynamicallyDispatched() async throws {
+        let provider: any LLMProvider = EchoLocalProvider(configuration: LLMProviderConfiguration(name: "echo-local", baseURL: URL(string: "inprocess://local")!))
+        var text = ""
+        for try await chunk in provider.stream(request()) {
+            if case .text(let t) = chunk { text += t }
+        }
+        #expect(text == "echo: hi there")
+    }
+
+    /// The default HTTP hooks now exist, so an in-process provider that doesn't
+    /// implement them fails loudly (unsupported) rather than failing to compile.
+    @Test func httpHooksHaveThrowingDefaults() throws {
+        let provider = EchoLocalProvider(configuration: LLMProviderConfiguration(name: "echo-local", baseURL: URL(string: "inprocess://local")!))
+        #expect(throws: (any Error).self) {
+            _ = try provider.prepareRequest(request(), stream: false)
+        }
+    }
+}
