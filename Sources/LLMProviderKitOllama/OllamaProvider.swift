@@ -139,13 +139,13 @@ public struct OllamaProvider: LLMProvider {
         // we surface them via the finish chunk's reason so consumers know to
         // collect them from the final non-streaming response, matching the
         // pattern used by the OpenAI provider's streaming path.
-        if let toolCalls = decoded.message?.toolCalls, !toolCalls.isEmpty, !decoded.done {
+        if let toolCalls = decoded.message?.toolCalls, !toolCalls.isEmpty, decoded.done != true {
             // Tool calls appeared mid-stream; mark the finish reason accordingly.
             // The full tool call details are carried in the final accumulated response.
             chunks.append(.finish(reason: .toolCalls, usage: nil))
         }
 
-        if decoded.done {
+        if decoded.done == true {
             let usage = LLMUsage(
                 promptTokens: decoded.promptEvalCount,
                 completionTokens: decoded.evalCount,
@@ -159,10 +159,24 @@ public struct OllamaProvider: LLMProvider {
 
     public func parseResponse(_ data: Data, request: LLMRequest) throws -> LLMResponse {
         let decoded = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
-        let text = decoded.message?.content ?? ""
+
+        // Ollama (notably its cloud proxy) can return HTTP 200 with an error
+        // body, or a degenerate `done` body with NO message at all (observed
+        // live: sub-second responses under concurrent load, no content /
+        // thinking / tool_calls). Both must throw — silently decoding them as
+        // an empty success makes agent loops treat a server failure as "the
+        // model said nothing".
+        if let apiError = decoded.error, !apiError.isEmpty {
+            throw LLMError.providerError(apiError)
+        }
+        guard let message = decoded.message else {
+            throw LLMError.invalidResponse(
+                "Ollama returned a body with no message (done_reason: \(decoded.doneReason ?? "nil")) — transient server/proxy failure, retry")
+        }
+        let text = message.content ?? ""
 
         // Parse native tool calls from the response
-        let toolCalls: [LLMToolCall] = decoded.message?.toolCalls?.map { tc in
+        let toolCalls: [LLMToolCall] = message.toolCalls?.map { tc in
             LLMToolCall(
                 id: tc.id ?? UUID().uuidString,
                 name: tc.function?.name ?? "",
@@ -178,7 +192,7 @@ public struct OllamaProvider: LLMProvider {
 
         let finishReason: LLMFinishReason = toolCalls.isEmpty ? .stop : .toolCalls
 
-        let thinking = decoded.message?.thinking
+        let thinking = message.thinking
         return LLMResponse(
             text: text,
             reasoning: (thinking?.isEmpty == false) ? thinking : nil,
@@ -274,7 +288,10 @@ private struct OllamaChatResponse: Decodable {
     let model: String?
     let createdAt: String?
     let message: Message?
-    let done: Bool
+    let done: Bool?
+    let doneReason: String?
+    /// Ollama (and its cloud proxy) can return HTTP 200 with an error body.
+    let error: String?
     let totalDuration: Int64?
     let loadDuration: Int64?
     let promptEvalCount: Int?
@@ -286,6 +303,7 @@ private struct OllamaChatResponse: Decodable {
         case model
         case createdAt = "created_at"
         case message
+        case error
         case done
         case doneReason = "done_reason"
         case totalDuration = "total_duration"
@@ -301,15 +319,15 @@ private struct OllamaChatResponse: Decodable {
         self.model = try container.decodeIfPresent(String.self, forKey: .model)
         self.createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
         self.message = try container.decodeIfPresent(Message.self, forKey: .message)
-        self.done = try container.decode(Bool.self, forKey: .done)
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        self.done = try container.decodeIfPresent(Bool.self, forKey: .done)
         self.totalDuration = try container.decodeIfPresent(Int64.self, forKey: .totalDuration)
         self.loadDuration = try container.decodeIfPresent(Int64.self, forKey: .loadDuration)
         self.promptEvalCount = try container.decodeIfPresent(Int.self, forKey: .promptEvalCount)
         self.promptEvalDuration = try container.decodeIfPresent(Int64.self, forKey: .promptEvalDuration)
         self.evalCount = try container.decodeIfPresent(Int.self, forKey: .evalCount)
         self.evalDuration = try container.decodeIfPresent(Int64.self, forKey: .evalDuration)
-        // done_reason is intentionally ignored
-        _ = try? container.decodeIfPresent(String.self, forKey: .doneReason)
+        self.doneReason = try container.decodeIfPresent(String.self, forKey: .doneReason)
     }
 }
 
