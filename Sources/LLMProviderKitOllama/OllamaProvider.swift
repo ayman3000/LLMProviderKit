@@ -178,8 +178,10 @@ public struct OllamaProvider: LLMProvider {
 
         let finishReason: LLMFinishReason = toolCalls.isEmpty ? .stop : .toolCalls
 
+        let thinking = decoded.message?.thinking
         return LLMResponse(
             text: text,
+            reasoning: (thinking?.isEmpty == false) ? thinking : nil,
             finishReason: finishReason,
             usage: usage,
             toolCalls: toolCalls,
@@ -257,23 +259,15 @@ private struct OllamaChatResponse: Decodable {
         let role: String?
         let content: String?
         let toolCalls: [OllamaToolCall]?
-        // "thinking" and other extra fields are ignored gracefully by Decodable
+        // Reasoning models (GLM/Kimi/DeepSeek) return separated reasoning here.
+        // Surfaced as `LLMResponse.reasoning` — never merged into the answer.
+        let thinking: String?
 
         enum CodingKeys: String, CodingKey {
             case role
             case content
             case toolCalls = "tool_calls"
             case thinking
-        }
-
-        // Custom init to handle that `thinking` exists but we don't need it
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.role = try container.decodeIfPresent(String.self, forKey: .role)
-            self.content = try container.decodeIfPresent(String.self, forKey: .content)
-            self.toolCalls = try container.decodeIfPresent([OllamaToolCall].self, forKey: .toolCalls)
-            // thinking is intentionally ignored — just needs to be in CodingKeys to not throw
-            _ = try? container.decodeIfPresent(String.self, forKey: .thinking)
         }
     }
 

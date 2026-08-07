@@ -143,6 +143,13 @@ public struct LLMUsage: Sendable, Equatable {
 /// A complete chat response assembled from one or more stream chunks.
 public struct LLMResponse: Sendable {
     public let text: String
+    /// Model reasoning that is separate from the answer (e.g. Ollama's
+    /// `thinking` field for GLM/Kimi/DeepSeek-style models). `nil` when the
+    /// provider or model doesn't produce separated reasoning. Reasoning is NOT
+    /// part of the answer — but a turn with empty `text` and non-empty
+    /// `reasoning` means "mid-thought", not "done", and agent loops should
+    /// continue rather than accept an empty answer.
+    public let reasoning: String?
     public let finishReason: LLMFinishReason?
     public let usage: LLMUsage?
     public let toolCalls: [LLMToolCall]
@@ -152,6 +159,7 @@ public struct LLMResponse: Sendable {
 
     public init(
         text: String,
+        reasoning: String? = nil,
         finishReason: LLMFinishReason? = nil,
         usage: LLMUsage? = nil,
         toolCalls: [LLMToolCall] = [],
@@ -160,6 +168,7 @@ public struct LLMResponse: Sendable {
         rawData: Data? = nil
     ) {
         self.text = text
+        self.reasoning = reasoning
         self.finishReason = finishReason
         self.usage = usage
         self.toolCalls = toolCalls
