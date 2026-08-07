@@ -299,6 +299,41 @@ struct ProviderTests {
         #expect(mode["type"] as? String == "string")                  // real fields preserved
     }
 
+    @Test func geminiSanitizesArbitraryMCPSchema() async throws {
+        // MCP tool schemas are arbitrary JSON Schema. Gemini rejects the whole
+        // request (HTTP 400) on: an array with no `items` (observed live from a
+        // Canva MCP tool), and unsupported constructs like additionalProperties
+        // / $schema / oneOf. Sanitize all of it.
+        let provider = GeminiProvider(configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash"))
+        let params: [String: Any] = [
+            "type": "object",
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "additionalProperties": false,
+            "properties": [
+                "operations": ["type": "array", "description": "ops"],   // array with NO items
+                "nested": ["type": "object", "properties": ["tags": ["type": "array", "description": "t"]]],
+            ],
+            "required": ["operations"],
+        ]
+        let request = LLMRequest(
+            model: "gemini-2.5-flash", messages: [.user("go")],
+            tools: [LLMToolDefinition(name: "perform_ops", description: "x", parameters: params)])
+
+        let urlRequest = try provider.prepareRequest(request, stream: false)
+        let body = try JSONSerialization.jsonObject(with: urlRequest.httpBody!) as! [String: Any]
+        let decl = ((body["tools"] as! [[String: Any]])[0]["functionDeclarations"] as! [[String: Any]])[0]
+        let params2 = decl["parameters"] as! [String: Any]
+
+        #expect(params2["$schema"] == nil)                              // unknown top-level field dropped
+        #expect(params2["additionalProperties"] == nil)                 // dropped
+        let props = params2["properties"] as! [String: Any]
+        let ops = props["operations"] as! [String: Any]
+        #expect(ops["items"] != nil)                                    // array now has items
+        // Nested array (inside an object) also gets items.
+        let nested = (props["nested"] as! [String: Any])["properties"] as! [String: Any]
+        #expect((nested["tags"] as! [String: Any])["items"] != nil)
+    }
+
     @Test func geminiAvailableModelsNormalizeIDsAndMarkTools() async throws {
         let apiKey = "normalize-test"
         GeminiModelsMockURLProtocol.setResponseData("""
