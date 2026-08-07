@@ -166,26 +166,40 @@ public struct GeminiProvider: LLMProvider {
         return urlRequest
     }
 
-    /// Translate a JSON-Schema fragment into the OpenAPI subset Gemini's
-    /// function-declaration parser accepts. It rejects the entire request (HTTP
-    /// 400) on any unknown field, so:
-    /// - `itemsType: X` (SwiftAgentKit's array element type) → `items: {type: X}`
-    /// - `defaultValue` (non-standard) → dropped (Gemini has no default in decls)
-    /// - recurse into `properties` values and `items`.
-    /// Standard fields (type, description, enum, properties, required) pass through.
-    static func sanitizeSchemaForGemini(_ schema: Any) -> Any {
-        guard var dict = schema as? [String: Any] else { return schema }
+    /// Fields Gemini's function-declaration Schema accepts. Any other key
+    /// (from SwiftAgentKit's `itemsType`/`defaultValue`, or arbitrary MCP tool
+    /// schemas: `$schema`, `additionalProperties`, `title`, `oneOf`, …) makes
+    /// Gemini reject the ENTIRE request with HTTP 400, so we keep only these.
+    private static let geminiAllowedSchemaKeys: Set<String> = [
+        "type", "format", "description", "nullable", "enum", "items",
+        "properties", "required", "minItems", "maxItems", "minimum", "maximum",
+        "minLength", "maxLength", "pattern", "example", "propertyOrdering",
+    ]
 
-        // Array element type: itemsType → items:{type: …} (unless items already set).
-        if let itemsType = dict["itemsType"] as? String {
-            dict["itemsType"] = nil
-            if dict["items"] == nil {
-                dict["items"] = ["type": itemsType]
-            }
+    /// Translate an arbitrary JSON-Schema fragment into the strict OpenAPI
+    /// subset Gemini accepts (unknown fields → 400 on the whole request):
+    /// - `itemsType: X` (SwiftAgentKit array element type) → `items: {type: X}`
+    /// - drop every key not in `geminiAllowedSchemaKeys`
+    /// - guarantee every `type: array` has `items` (Gemini requires it; some MCP
+    ///   schemas omit it — e.g. an array-of-objects — which 400s). Fallback to
+    ///   `{type: string}` when the element type is unknown.
+    /// - recurse into `properties` values and `items`.
+    static func sanitizeSchemaForGemini(_ schema: Any) -> Any {
+        guard let raw = schema as? [String: Any] else { return schema }
+        var dict = raw
+
+        // itemsType → items:{type: …} (before we drop unknown keys).
+        if let itemsType = dict["itemsType"] as? String, dict["items"] == nil {
+            dict["items"] = ["type": itemsType]
         }
-        // Gemini function declarations don't support parameter defaults.
-        dict["defaultValue"] = nil
-        dict["default"] = nil
+
+        // Keep only Gemini-supported keys.
+        dict = dict.filter { geminiAllowedSchemaKeys.contains($0.key) }
+
+        // Every array must declare its element type.
+        if (dict["type"] as? String) == "array", dict["items"] == nil {
+            dict["items"] = ["type": "string"]
+        }
 
         // Recurse.
         if let props = dict["properties"] as? [String: Any] {
