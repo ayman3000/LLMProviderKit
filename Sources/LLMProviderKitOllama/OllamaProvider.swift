@@ -8,6 +8,11 @@ import LLMProviderKit
 public struct OllamaProvider: LLMProvider {
     public static let name: String = "ollama"
 
+    /// How long Ollama should keep the model resident after a request. Sent as
+    /// `keep_alive` on every chat call so multi-turn / parallel agents don't
+    /// trigger model-eviction reload storms between turns.
+    public static var keepAlive: String = "15m"
+
     public let configuration: LLMProviderConfiguration
 
     public init(configuration: LLMProviderConfiguration) {
@@ -81,6 +86,14 @@ public struct OllamaProvider: LLMProvider {
         if !options.isEmpty {
             bodyDict["options"] = options
         }
+
+        // Keep the model resident between requests. Multi-turn agents (and
+        // parallel sub-agents) have gaps between calls while tools run; without
+        // this, Ollama evicts the model and the next call gets a
+        // `done_reason:"load"` reload response instead of a generation. Under
+        // concurrency that becomes a self-perpetuating load storm. Holding the
+        // model warm for a few minutes eliminates the thrash at the source.
+        bodyDict["keep_alive"] = Self.keepAlive
 
         let bodyData = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
         urlRequest.httpBody = bodyData
