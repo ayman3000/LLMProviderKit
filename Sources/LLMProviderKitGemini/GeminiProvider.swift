@@ -148,13 +148,15 @@ public struct GeminiProvider: LLMProvider {
             bodyDict["generationConfig"] = genConfig
         }
 
-        // Tools (function declarations)
+        // Tools (function declarations). Gemini's function-declaration parser
+        // is a strict OpenAPI subset that rejects the WHOLE request (HTTP 400)
+        // on any unknown field, so translate non-standard schema fields first.
         if !request.tools.isEmpty {
             let functionDeclarations = request.tools.map { tool -> [String: Any] in
                 [
                     "name": tool.name,
                     "description": tool.description,
-                    "parameters": tool.parameters
+                    "parameters": Self.sanitizeSchemaForGemini(tool.parameters)
                 ]
             }
             bodyDict["tools"] = [["functionDeclarations": functionDeclarations]]
@@ -162,6 +164,37 @@ public struct GeminiProvider: LLMProvider {
 
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
         return urlRequest
+    }
+
+    /// Translate a JSON-Schema fragment into the OpenAPI subset Gemini's
+    /// function-declaration parser accepts. It rejects the entire request (HTTP
+    /// 400) on any unknown field, so:
+    /// - `itemsType: X` (SwiftAgentKit's array element type) → `items: {type: X}`
+    /// - `defaultValue` (non-standard) → dropped (Gemini has no default in decls)
+    /// - recurse into `properties` values and `items`.
+    /// Standard fields (type, description, enum, properties, required) pass through.
+    static func sanitizeSchemaForGemini(_ schema: Any) -> Any {
+        guard var dict = schema as? [String: Any] else { return schema }
+
+        // Array element type: itemsType → items:{type: …} (unless items already set).
+        if let itemsType = dict["itemsType"] as? String {
+            dict["itemsType"] = nil
+            if dict["items"] == nil {
+                dict["items"] = ["type": itemsType]
+            }
+        }
+        // Gemini function declarations don't support parameter defaults.
+        dict["defaultValue"] = nil
+        dict["default"] = nil
+
+        // Recurse.
+        if let props = dict["properties"] as? [String: Any] {
+            dict["properties"] = props.mapValues { sanitizeSchemaForGemini($0) }
+        }
+        if let items = dict["items"] {
+            dict["items"] = sanitizeSchemaForGemini(items)
+        }
+        return dict
     }
 
     public func parseStreamLine(_ line: String, request: LLMRequest) throws -> [LLMStreamChunk] {

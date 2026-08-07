@@ -263,6 +263,42 @@ struct ProviderTests {
         #expect(urlRequest.url?.path == "/v1beta/models/gemini-2.5-flash:generateContent")
     }
 
+    @Test func geminiSanitizesNonStandardToolSchemaFields() async throws {
+        // SwiftAgentKit's ToolParameters emits non-standard `itemsType` (array
+        // element type) and `defaultValue` fields. OpenAI/Ollama ignore unknown
+        // fields, but Gemini's function-declaration parser rejects the whole
+        // request with HTTP 400 ("Unknown name 'itemsType'/'defaultValue'").
+        // The provider must translate to Gemini's OpenAPI subset: itemsType →
+        // items:{type:…}, and drop defaultValue.
+        let provider = GeminiProvider(configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash"))
+        let params: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "packages": ["type": "array", "description": "pkgs", "itemsType": "string"],
+                "mode": ["type": "string", "description": "m", "defaultValue": "fast"],
+            ],
+            "required": ["packages"],
+        ]
+        let request = LLMRequest(
+            model: "gemini-2.5-flash",
+            messages: [.user("go")],
+            tools: [LLMToolDefinition(name: "run_python", description: "run", parameters: params)])
+
+        let urlRequest = try provider.prepareRequest(request, stream: false)
+        let body = try JSONSerialization.jsonObject(with: urlRequest.httpBody!) as! [String: Any]
+        let decls = ((body["tools"] as! [[String: Any]])[0]["functionDeclarations"] as! [[String: Any]])
+        let props = ((decls[0]["parameters"] as! [String: Any])["properties"] as! [String: Any])
+
+        let packages = props["packages"] as! [String: Any]
+        #expect(packages["itemsType"] == nil)                          // non-standard field removed
+        let items = packages["items"] as! [String: Any]
+        #expect(items["type"] as? String == "string")                 // translated to items:{type:…}
+
+        let mode = props["mode"] as! [String: Any]
+        #expect(mode["defaultValue"] == nil)                          // non-standard field removed
+        #expect(mode["type"] as? String == "string")                  // real fields preserved
+    }
+
     @Test func geminiAvailableModelsNormalizeIDsAndMarkTools() async throws {
         let apiKey = "normalize-test"
         GeminiModelsMockURLProtocol.setResponseData("""
