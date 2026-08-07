@@ -50,6 +50,31 @@ struct ProviderTests {
         #expect(response.reasoning == "Let me check the files first...")
     }
 
+    @Test func ollamaErrorBodyThrows() async throws {
+        // Ollama's cloud proxy can return HTTP 200 with an error body; that
+        // must throw, not decode into an empty success the agent loop then
+        // treats as "the model said nothing".
+        let provider = OllamaProvider(configuration: OllamaProvider.local(model: "glm-5.2:cloud"))
+        let data = #"{"error": "upstream connection reset", "done": true}"#.data(using: .utf8)!
+        let request = LLMRequest(model: "glm-5.2:cloud", messages: [.user("Hi")])
+        #expect(throws: LLMError.providerError("upstream connection reset")) {
+            _ = try provider.parseResponse(data, request: request)
+        }
+    }
+
+    @Test func ollamaMissingMessageThrows() async throws {
+        // A chat body with `done` but NO message is a degenerate proxy/unload
+        // response (observed live from glm-5.2:cloud under concurrent load):
+        // 200 OK, sub-second, no content/thinking/tool_calls. Must throw so
+        // callers retry instead of accepting an empty answer.
+        let provider = OllamaProvider(configuration: OllamaProvider.local(model: "glm-5.2:cloud"))
+        let data = #"{"model": "glm-5.2:cloud", "done": true, "done_reason": "unload"}"#.data(using: .utf8)!
+        let request = LLMRequest(model: "glm-5.2:cloud", messages: [.user("Hi")])
+        #expect(throws: LLMError.self) {
+            _ = try provider.parseResponse(data, request: request)
+        }
+    }
+
     @Test func ollamaStreamingLine() async throws {
         let provider = OllamaProvider(configuration: OllamaProvider.local(model: "llama3.2"))
         let line = """
