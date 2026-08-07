@@ -30,6 +30,26 @@ struct ProviderTests {
         #expect(response.providerName == "ollama")
     }
 
+    @Test func ollamaReasoningOnlyResponseSurfacesThinking() async throws {
+        // Reasoning models (GLM/Kimi via Ollama) sometimes return everything in
+        // `thinking` with empty `content`. The thinking must surface as
+        // `reasoning` so agent loops can tell "mid-thought" from "done".
+        let provider = OllamaProvider(configuration: OllamaProvider.local(model: "glm-5.2:cloud"))
+        let data = """
+        {
+          "model": "glm-5.2:cloud",
+          "message": { "role": "assistant", "content": "", "thinking": "Let me check the files first..." },
+          "done": true
+        }
+        """.data(using: .utf8)!
+
+        let request = LLMRequest(model: "glm-5.2:cloud", messages: [.user("Analyze")])
+        let response = try provider.parseResponse(data, request: request)
+
+        #expect(response.text.isEmpty)
+        #expect(response.reasoning == "Let me check the files first...")
+    }
+
     @Test func ollamaStreamingLine() async throws {
         let provider = OllamaProvider(configuration: OllamaProvider.local(model: "llama3.2"))
         let line = """
