@@ -75,6 +75,31 @@ struct ProviderTests {
         }
     }
 
+    @Test func ollamaLoadResponseThrows() async throws {
+        // Under concurrent load, Ollama's cloud proxy returns model-LOAD
+        // acknowledgements (done_reason:"load", empty content, ~µs duration)
+        // instead of generating. Captured live from glm-5.2:cloud. These must
+        // throw so the agent retries — decoding them as an empty answer is the
+        // root cause of sub-agents "returning no answer".
+        let provider = OllamaProvider(configuration: OllamaProvider.local(model: "glm-5.2:cloud"))
+        let data = #"{"model":"glm-5.2","message":{"role":"assistant","content":""},"done":true,"done_reason":"load","total_duration":33618}"#.data(using: .utf8)!
+        let request = LLMRequest(model: "glm-5.2:cloud", messages: [.user("Analyze")])
+        #expect(throws: LLMError.self) {
+            _ = try provider.parseResponse(data, request: request)
+        }
+    }
+
+    @Test func ollamaNormalEmptyContentWithToolCallsSucceeds() async throws {
+        // A done_reason:"stop" response with empty content but real tool_calls
+        // is a NORMAL tool-calling turn — must NOT be mistaken for a load.
+        let provider = OllamaProvider(configuration: OllamaProvider.local(model: "glm-5.2:cloud"))
+        let data = #"{"model":"glm-5.2","message":{"role":"assistant","content":"","tool_calls":[{"id":"c1","function":{"name":"run_shell","arguments":{"command":"ls"}}}]},"done":true,"done_reason":"stop"}"#.data(using: .utf8)!
+        let request = LLMRequest(model: "glm-5.2:cloud", messages: [.user("Analyze")])
+        let response = try provider.parseResponse(data, request: request)
+        #expect(response.toolCalls.count == 1)
+        #expect(response.finishReason == .toolCalls)
+    }
+
     @Test func ollamaStreamingLine() async throws {
         let provider = OllamaProvider(configuration: OllamaProvider.local(model: "llama3.2"))
         let line = """

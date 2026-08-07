@@ -173,6 +173,20 @@ public struct OllamaProvider: LLMProvider {
             throw LLMError.invalidResponse(
                 "Ollama returned a body with no message (done_reason: \(decoded.doneReason ?? "nil")) — transient server/proxy failure, retry")
         }
+
+        // `done_reason:"load"` is a model-LOAD acknowledgement, not a
+        // completion: under concurrent load the Ollama cloud proxy returns
+        // these (empty content, no tool calls, ~µs duration) instead of
+        // generating. Captured live from glm-5.2:cloud. Throw so callers retry
+        // — decoding it as an empty answer is the root cause of sub-agents
+        // "returning no answer" under parallel delegation.
+        if decoded.doneReason == "load",
+           (message.content ?? "").isEmpty,
+           (message.toolCalls ?? []).isEmpty {
+            throw LLMError.invalidResponse(
+                "Ollama returned a model-load response (done_reason: \"load\") with no generation — transient, retry")
+        }
+
         let text = message.content ?? ""
 
         // Parse native tool calls from the response
