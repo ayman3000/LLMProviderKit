@@ -57,6 +57,13 @@ public struct LLMMessage: Sendable, Equatable {
     public static func tool(_ content: String, toolCallId: String) -> Self {
         LLMMessage(role: .tool, content: content, toolCallId: toolCallId)
     }
+
+    /// Create a tool-result message carrying images (e.g. a screenshot a tool
+    /// returned) so a vision-capable model can see them. Providers place the
+    /// images per their API's rules for tool results.
+    public static func tool(_ content: String, images: [LLMImage], toolCallId: String) -> Self {
+        LLMMessage(role: .tool, content: content, images: images, toolCallId: toolCallId)
+    }
 }
 
 /// An image payload attached to a message for vision-capable models.

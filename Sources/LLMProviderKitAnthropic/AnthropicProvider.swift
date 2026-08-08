@@ -59,11 +59,31 @@ public struct AnthropicProvider: LLMProvider {
             if msg.role == .tool {
                 var blocks: [[String: Any]] = []
                 if let toolCallId = msg.toolCallId {
-                    blocks.append([
+                    var toolResult: [String: Any] = [
                         "type": "tool_result",
-                        "tool_use_id": toolCallId,
-                        "content": msg.content
-                    ])
+                        "tool_use_id": toolCallId
+                    ]
+                    if msg.images.isEmpty {
+                        toolResult["content"] = msg.content
+                    } else {
+                        // Anthropic allows tool_result.content to be an array of
+                        // text + image blocks — keeps the image in the same user
+                        // turn as the result (no alternation break) and correlated
+                        // with the tool call.
+                        var inner: [[String: Any]] = [["type": "text", "text": msg.content]]
+                        for img in msg.images {
+                            inner.append([
+                                "type": "image",
+                                "source": [
+                                    "type": "base64",
+                                    "media_type": img.mimeType,
+                                    "data": img.base64
+                                ]
+                            ])
+                        }
+                        toolResult["content"] = inner
+                    }
+                    blocks.append(toolResult)
                 } else {
                     blocks.append(["type": "text", "text": msg.content])
                 }
