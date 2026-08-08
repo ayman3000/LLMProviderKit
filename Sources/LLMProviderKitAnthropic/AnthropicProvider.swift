@@ -57,17 +57,29 @@ public struct AnthropicProvider: LLMProvider {
 
             // Tool result messages → content as tool_result blocks
             if msg.role == .tool {
-                var blocks: [[String: Any]] = []
                 if let toolCallId = msg.toolCallId {
-                    blocks.append([
+                    var toolResultContent: [[String: Any]] = [
+                        ["type": "text", "text": msg.content]
+                    ]
+                    for img in msg.images {
+                        toolResultContent.append([
+                            "type": "image",
+                            "source": [
+                                "type": "base64",
+                                "media_type": img.mimeType,
+                                "data": img.base64
+                            ]
+                        ])
+                    }
+                    let toolResultBlock: [String: Any] = [
                         "type": "tool_result",
                         "tool_use_id": toolCallId,
-                        "content": msg.content
-                    ])
+                        "content": toolResultContent
+                    ]
+                    msgDict["content"] = [toolResultBlock]
                 } else {
-                    blocks.append(["type": "text", "text": msg.content])
+                    msgDict["content"] = [["type": "text", "text": msg.content]]
                 }
-                msgDict["content"] = blocks
             }
             // Assistant messages with tool calls → content as text + tool_use blocks
             else if msg.role == .assistant, let toolCalls = msg.toolCalls, !toolCalls.isEmpty {

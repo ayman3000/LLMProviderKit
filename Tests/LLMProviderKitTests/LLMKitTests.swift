@@ -842,6 +842,28 @@ extension ProviderTests {
         #expect(firstMsg["content"] is String)
     }
 
+    @Test func anthropicToolResultCarriesImageInContent() throws {
+        let provider = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "test", model: "claude-3-5-sonnet-latest"))
+        let img = LLMImage(data: Data([0x89, 0x50]), mimeType: "image/png")
+        let toolMsg = LLMMessage(role: .tool, content: "screenshot taken", images: [img], toolCallId: "call_1")
+        let request = LLMRequest(model: "claude-3-5-sonnet-latest", messages: [.user("look"), toolMsg])
+
+        let urlRequest = try provider.prepareRequest(request, stream: false)
+        let body = try JSONSerialization.jsonObject(with: urlRequest.httpBody!) as! [String: Any]
+        let messages = body["messages"] as! [[String: Any]]
+        // The tool result becomes a user-role message whose content is the tool_result block.
+        let toolResultBlock = messages.compactMap { m -> [String: Any]? in
+            (m["content"] as? [[String: Any]])?.first { ($0["type"] as? String) == "tool_result" }
+        }.first!
+        let inner = toolResultBlock["content"] as! [[String: Any]]
+        #expect(inner.contains { ($0["type"] as? String) == "text" })
+        let imageBlock = inner.first { ($0["type"] as? String) == "image" }!
+        let source = imageBlock["source"] as! [String: Any]
+        #expect(source["type"] as? String == "base64")
+        #expect(source["media_type"] as? String == "image/png")
+        #expect(source["data"] as? String == img.base64)
+    }
+
     @Test func anthropicSendsValidVersionHeader() async throws {
         let provider = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "test", model: "claude-3-5-sonnet-20241022"))
         let request = LLMRequest(model: "claude-3-5-sonnet-20241022", messages: [.user("Hi")])
