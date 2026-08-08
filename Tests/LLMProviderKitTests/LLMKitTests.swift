@@ -899,6 +899,24 @@ extension ProviderTests {
         #expect(functionResponseTurn["role"] as? String == "user")
     }
 
+    @Test func geminiToolResultCarriesInlineImage() throws {
+        let provider = GeminiProvider(configuration: GeminiProvider.gemini(apiKey: "test", model: "gemini-2.5-flash"))
+        let img = LLMImage(data: Data([0x89, 0x50]), mimeType: "image/png")
+        let toolMsg = LLMMessage(role: .tool, content: "{\"ok\":true}", images: [img], toolCallId: "screenshot")
+        let request = LLMRequest(model: "gemini-2.5-flash", messages: [.user("look"), toolMsg])
+
+        let urlRequest = try provider.prepareRequest(request, stream: false)
+        let body = try JSONSerialization.jsonObject(with: urlRequest.httpBody!) as! [String: Any]
+        let contents = body["contents"] as! [[String: Any]]
+        // The tool turn's parts must contain a functionResponse AND an inlineData image.
+        let toolParts = contents.compactMap { $0["parts"] as? [[String: Any]] }
+            .first { parts in parts.contains { $0["functionResponse"] != nil } }!
+        #expect(toolParts.contains { $0["functionResponse"] != nil })
+        let inline = toolParts.first { $0["inlineData"] != nil }!["inlineData"] as! [String: Any]
+        #expect(inline["mimeType"] as? String == "image/png")
+        #expect(inline["data"] as? String == img.base64)
+    }
+
     @Test func ollamaAssistantToolCallsSerializeArgumentsAsJSONObject() async throws {
         let ollama = OllamaProvider(configuration: OllamaProvider.local(model: "qwen3:0.6b"))
         let request = LLMRequest(
