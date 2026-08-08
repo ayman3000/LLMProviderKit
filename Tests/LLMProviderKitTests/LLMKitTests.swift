@@ -756,6 +756,70 @@ func chunksEqual(_ lhs: LLMStreamChunk, _ rhs: LLMStreamChunk) -> Bool {
 }
 
 extension ProviderTests {
+    // MARK: - Tool-image expansion helper
+
+    @Test func expandsToolImagesToFollowingUserMessage() {
+        let img = LLMImage(data: Data([0x1, 0x2]), mimeType: "image/png")
+        let msgs: [LLMMessage] = [
+            .user("go"),
+            LLMMessage(role: .tool, content: "shot", images: [img], toolCallId: "c1"),
+            .assistant("done")
+        ]
+        let out = LLMMessage.expandingToolImagesToUserMessages(msgs)
+
+        // Tool message is preserved (text/role/id) but image-free.
+        let tool = out.first { $0.role == .tool }!
+        #expect(tool.images.isEmpty)
+        #expect(tool.content == "shot")
+        #expect(tool.toolCallId == "c1")
+        // A user message with the image is inserted immediately after the tool message.
+        let toolIdx = out.firstIndex { $0.role == .tool }!
+        let next = out[toolIdx + 1]
+        #expect(next.role == .user)
+        #expect(next.images.map(\.base64) == [img.base64])
+        // Messages without tool images are untouched: count grows by exactly 1.
+        #expect(out.count == msgs.count + 1)
+    }
+
+    @Test func openAIToolResultImageBecomesFollowingUserMessage() throws {
+        let provider = OpenAIProvider(configuration: OpenAIProvider.openAI(apiKey: "test", model: "gpt-4o-mini"))
+        let img = LLMImage(data: Data([0x1]), mimeType: "image/png")
+        let toolMsg = LLMMessage(role: .tool, content: "shot", images: [img], toolCallId: "c1")
+        let request = LLMRequest(model: "gpt-4o-mini", messages: [.user("go"), toolMsg])
+        let body = try JSONSerialization.jsonObject(with: provider.prepareRequest(request, stream: false).httpBody!) as! [String: Any]
+        let messages = body["messages"] as! [[String: Any]]
+
+        let toolOut = messages.first { ($0["role"] as? String) == "tool" }!
+        #expect(toolOut["content"] is String)   // tool message stays text-only
+
+        // A user message carries the image as an image_url content part.
+        let userWithImage = messages.first { m in
+            guard (m["role"] as? String) == "user",
+                  let parts = m["content"] as? [[String: Any]] else { return false }
+            return parts.contains { ($0["type"] as? String) == "image_url" }
+        }
+        #expect(userWithImage != nil)
+    }
+
+    @Test func ollamaToolResultImageBecomesFollowingUserMessage() throws {
+        let provider = OllamaProvider(configuration: OllamaProvider.local(model: "llava"))
+        let img = LLMImage(data: Data([0x1]), mimeType: "image/png")
+        let toolMsg = LLMMessage(role: .tool, content: "shot", images: [img], toolCallId: "c1")
+        let request = LLMRequest(model: "llava", messages: [.user("go"), toolMsg])
+        let body = try JSONSerialization.jsonObject(with: provider.prepareRequest(request, stream: false).httpBody!) as! [String: Any]
+        let messages = body["messages"] as! [[String: Any]]
+
+        let toolOut = messages.first { ($0["role"] as? String) == "tool" }!
+        #expect((toolOut["images"] as? [String])?.isEmpty ?? true)   // tool msg has no images
+
+        let userWithImage = messages.first { m in
+            (m["role"] as? String) == "user" && ((m["images"] as? [String])?.isEmpty == false)
+        }
+        #expect(userWithImage != nil)
+    }
+}
+
+extension ProviderTests {
     // MARK: - Image encoding tests
 
     private func makeImageRequest(provider: any LLMProvider, model: String) throws -> Data {

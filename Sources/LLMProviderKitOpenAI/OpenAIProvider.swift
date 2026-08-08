@@ -29,9 +29,10 @@ public struct OpenAIProvider: LLMProvider {
         }
 
         // Build body as a dictionary to handle [String: Any] tool parameters
+        let expandedMessages = LLMMessage.expandingToolImagesToUserMessages(request.messages)
         var bodyDict: [String: Any] = [
             "model": request.model,
-            "messages": request.messages.map { msg -> [String: Any] in
+            "messages": expandedMessages.map { msg -> [String: Any] in
                 var msgDict: [String: Any] = [
                     "role": msg.role.rawValue,
                     "content": msg.content
