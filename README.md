@@ -99,7 +99,7 @@ If you just need to talk to an LLM from Swift — without rewriting your code wh
 | 🔧 **Tool calling** | Native tool definitions + tool-call parsing for all 4 providers. |
 | 🖼️ **Vision/multimodal** | Send images to vision-capable models. Per-provider native encoding. |
 | 🖥️ **Local LLMs** | Full Ollama support with auto model discovery (`GET /api/tags`). |
-| 📋 **Model registry** | Offline-friendly `LLMModelRegistry` with curated lists and merge strategies. |
+| 📋 **Model registry** | Offline-friendly `LLMModelRegistry` with curated lists, merge strategies, and one-call `refreshAll` across all providers with obsolete-model filtering. |
 | 🏗️ **Per-provider SPM targets** | Import only the providers you need — keeps binary size small. |
 | 🔌 **OpenAI-compatible endpoints** | Groq, Together, any OpenAI-compat API — just pass a custom base URL. |
 | 📡 **Unified service facade** | `LLMService` for multi-provider routing in one call. |
@@ -295,7 +295,7 @@ Supported:
 - `OllamaProvider.availableModels()` → `GET /api/tags`
 - `OpenAIProvider.availableModels()` → `GET /v1/models`
 - `GeminiProvider.availableModels()` → `GET /v1beta/models`
-- `AnthropicProvider.availableModels()` → returns a curated static list (Anthropic has no public list endpoint)
+- `AnthropicProvider.availableModels()` → `GET /v1/models`, enriched with curated metadata (context windows, capabilities). Falls back to the curated static list when offline.
 
 ### 7. Offline-friendly model registry
 
@@ -328,6 +328,32 @@ Merge strategies:
 - `.replace` — overwrite with fetched models.
 - `.append` — keep existing models, add only new IDs.
 - `.merge` — overwrite with fetched models, preserving any existing models for IDs not returned by the provider.
+- `.liveWithCuratedMetadata` — use live IDs, fill missing metadata from curated records.
+- `.curatedOnly` — ignore live models, use curated records only.
+
+#### Refresh all providers in one call
+
+`refreshAll(from:strategy:includeDeprecated:)` fetches the current model list
+from every provider at once and drops obsolete models (deprecated flag or a
+`.legacy`/`.deprecated` release stage) from the returned list. A provider that
+fails — offline Ollama server, bad API key — is reported in `failures` instead
+of failing the whole call, so the other providers' models still come back.
+
+```swift
+let result = await registry.refreshAll(from: [ollama, openai, gemini, anthropic])
+
+picker.models = result.models                 // current models, all providers
+for (provider, error) in result.failures {    // partial failures, if any
+    print("\(provider) unavailable: \(error)")
+}
+
+// Keep legacy/deprecated models too:
+let everything = await registry.refreshAll(from: providers, includeDeprecated: true)
+```
+
+The registry itself always stores the full fetched list — filtering applies
+only to the returned `models` array. Individual models expose `isObsolete`
+if you need the same check elsewhere.
 
 ### 8. Multimodal image input
 
@@ -509,7 +535,7 @@ swift build
 swift test
 ```
 
-Includes 33 unit tests for parsing, streaming logic, UTF-8 streaming, model registry, tool calling, and image encoding for all four providers — no network calls.
+Includes 56 unit tests for parsing, streaming logic, UTF-8 streaming, model registry (including `refreshAll` and obsolete-model filtering), model discovery, tool calling, and image encoding for all four providers — no network calls.
 
 ---
 
