@@ -84,6 +84,58 @@ public actor LLMModelRegistry {
         }
     }
 
+    /// Outcome of ``refreshAll(from:strategy:includeDeprecated:)``: the aggregated
+    /// model list plus any per-provider fetch failures.
+    public struct RefreshAllResult: Sendable {
+        /// Models across all providers that refreshed successfully, sorted by
+        /// provider name then model ID. Obsolete models are excluded unless
+        /// `includeDeprecated` was `true`.
+        public let models: [LLMModelInfo]
+
+        /// Fetch errors keyed by provider name. A failed provider keeps its
+        /// previously registered models, if any.
+        public let failures: [String: any Error]
+    }
+
+    /// Fetch the current model list from every provider in one call.
+    ///
+    /// Each provider's live list is fetched and merged into the registry. A
+    /// provider that fails (offline, bad key, unsupported) is recorded in
+    /// ``RefreshAllResult/failures`` without failing the whole call — the other
+    /// providers' models are still returned.
+    ///
+    /// - Parameters:
+    ///   - providers: Providers to query via `availableModels()`.
+    ///   - strategy: How fetched models merge into existing registry entries.
+    ///   - includeDeprecated: When `false` (the default), models whose
+    ///     ``LLMModelInfo/isObsolete`` is `true` are dropped from the returned
+    ///     list. The registry itself always keeps the full list.
+    @discardableResult
+    public func refreshAll(
+        from providers: [any LLMProvider],
+        strategy: MergeStrategy = .merge,
+        includeDeprecated: Bool = false
+    ) async -> RefreshAllResult {
+        var failures: [String: any Error] = [:]
+        var refreshedProviderNames: [String] = []
+
+        for provider in providers {
+            let providerName = type(of: provider).name
+            do {
+                try await refresh(from: provider, strategy: strategy)
+                refreshedProviderNames.append(providerName)
+            } catch {
+                failures[providerName] = error
+            }
+        }
+
+        let aggregated = refreshedProviderNames
+            .sorted()
+            .flatMap { models(for: $0) }
+            .filter { includeDeprecated || !$0.isObsolete }
+        return RefreshAllResult(models: aggregated, failures: failures)
+    }
+
     /// Refresh from a provider and enrich live records with an explicit curated list.
     public func refresh(
         from provider: any LLMProvider,

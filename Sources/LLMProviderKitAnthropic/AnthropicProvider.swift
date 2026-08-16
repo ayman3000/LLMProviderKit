@@ -12,9 +12,11 @@ public struct AnthropicProvider: LLMProvider {
     public static let name: String = "anthropic"
 
     public let configuration: LLMProviderConfiguration
+    public let urlSession: URLSession
 
-    public init(configuration: LLMProviderConfiguration) {
+    public init(configuration: LLMProviderConfiguration, urlSession: URLSession = .shared) {
         self.configuration = configuration
+        self.urlSession = urlSession
     }
 
     public func prepareRequest(_ request: LLMRequest, stream: Bool) throws -> URLRequest {
@@ -260,8 +262,48 @@ public struct AnthropicProvider: LLMProvider {
         )
     }
 
+    /// Fetch the live model list from `GET /v1/models`, enriching each record
+    /// with curated metadata (context window, capabilities, release stage).
+    /// Falls back to ``curatedModels`` when the endpoint is unreachable, so
+    /// offline apps keep working as before.
     public func availableModels() async throws -> [LLMModelInfo] {
-        Self.curatedModels
+        var components = URLComponents(
+            url: configuration.baseURL.appendingPathComponent("models"),
+            resolvingAgainstBaseURL: false
+        )
+        // The API paginates; 1000 is the documented maximum page size and far
+        // exceeds the current model count, so one request suffices.
+        components?.queryItems = [URLQueryItem(name: "limit", value: "1000")]
+        guard let url = components?.url else { return Self.curatedModels }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let apiKey = configuration.apiKey {
+            urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        }
+        urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
+        let live: AnthropicModelsResponse
+        do {
+            let (data, response) = try await urlSession.data(for: urlRequest)
+            try Self.verifyHTTPResponse(response, data: data)
+            live = try JSONDecoder().decode(AnthropicModelsResponse.self, from: data)
+        } catch {
+            return Self.curatedModels
+        }
+
+        let curatedByID = Dictionary(uniqueKeysWithValues: Self.curatedModels.map { ($0.id, $0) })
+        return live.data.map { model in
+            LLMModelInfo(
+                id: model.id,
+                providerName: Self.name,
+                displayName: model.displayName,
+                contextWindow: nil,
+                capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput],
+                categories: [.text, .vision, .multimodal]
+            ).enriched(with: curatedByID[model.id])
+        }
     }
 
     private static func anthropicRole(for role: LLMMessageRole) -> String {
@@ -275,6 +317,20 @@ public struct AnthropicProvider: LLMProvider {
 }
 
 // MARK: - Anthropic API response types
+
+private struct AnthropicModelsResponse: Decodable {
+    struct Model: Decodable {
+        let id: String
+        let displayName: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case displayName = "display_name"
+        }
+    }
+
+    let data: [Model]
+}
 
 private struct AnthropicResponse: Decodable {
     struct ContentBlock: Decodable {

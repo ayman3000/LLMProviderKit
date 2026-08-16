@@ -128,6 +128,12 @@ public struct LLMModelInfo: Sendable, Identifiable, Hashable, Codable {
 }
 
 extension LLMModelInfo {
+    /// True when the model should be hidden from "current models" lists: either
+    /// explicitly deprecated or in a `.legacy`/`.deprecated` release stage.
+    public var isObsolete: Bool {
+        isDeprecated || releaseStage == .legacy || releaseStage == .deprecated
+    }
+
     /// Returns this model enriched with metadata from a curated model record.
     /// Live values keep precedence for providerName/id, while missing metadata is
     /// filled from curated records.
