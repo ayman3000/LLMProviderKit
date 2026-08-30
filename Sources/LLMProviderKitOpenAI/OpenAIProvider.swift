@@ -390,13 +390,36 @@ extension OpenAIProvider {
         }
 
         var capabilities: Set<LLMModelCapability> = [.chat, .textGeneration, .streaming]
-        if lowercased.contains("gpt") || isOSeriesReasoningModel(lowercased) {
+        // "gpt" as a substring must not imply multimodal: OpenAI-compatible
+        // hosts (Ollama Cloud, resellers) serve TEXT-ONLY gpt-oss through this
+        // provider, and fabricated vision put it in vision-model pickers where
+        // it silently fails to see. gpt-oss keeps tools, loses vision.
+        let isTextOnlyGPTFamily = lowercased.contains("gpt-oss")
+        if (lowercased.contains("gpt") && !isTextOnlyGPTFamily) || isOSeriesReasoningModel(lowercased) {
             capabilities.formUnion([.tools, .vision, .imageInput, .structuredOutput])
+        }
+        if isTextOnlyGPTFamily {
+            capabilities.formUnion([.tools, .structuredOutput, .reasoning])
+        }
+        // Known multimodal families served via OpenAI-compatible endpoints
+        // without "gpt" in the id (qwen-vl, llava, llama-vision, …) —
+        // previously missed entirely, so real vision models never reached
+        // the vision-model picker.
+        if Self.isKnownVisionFamily(lowercased) {
+            capabilities.formUnion([.vision, .imageInput])
         }
         if lowercased.contains("gpt-5") || isOSeriesReasoningModel(lowercased) {
             capabilities.insert(.reasoning)
         }
         return capabilities
+    }
+
+    /// Multimodal open-model families commonly served on OpenAI-compatible
+    /// hosts. Substring match on the lowercased id; conservative on purpose —
+    /// a miss fails CLOSED (model just doesn't appear in vision pickers).
+    private static func isKnownVisionFamily(_ modelID: String) -> Bool {
+        ["vision", "-vl", "llava", "pixtral", "moondream", "minicpm-v"]
+            .contains { modelID.contains($0) }
     }
 
     private static func isKnownNonChatModel(_ modelID: String) -> Bool {

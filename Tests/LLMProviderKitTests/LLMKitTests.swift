@@ -702,6 +702,33 @@ extension ProviderTests {
         #expect(oSeries.contains(.reasoning))
     }
 
+    @Test func openAICompatibleEndpointsDoNotFabricateVision() async throws {
+        // Ollama Cloud serves OpenAI-format model lists through this provider.
+        // "gpt" as a substring must NOT imply vision: gpt-oss is TEXT-ONLY —
+        // it showed up in Naseem's vision-model picker (observed 2026-08-30),
+        // and a picked gpt-oss "vision" model would silently fail to see.
+        let oss = OpenAIProvider.capabilities(for: "gpt-oss:120b")
+        #expect(!oss.contains(.vision))
+        #expect(!oss.contains(.imageInput))
+        #expect(oss.contains(.tools))        // gpt-oss does support tools
+        let oss20 = OpenAIProvider.capabilities(for: "gpt-oss:20b")
+        #expect(!oss20.contains(.vision))
+
+        // Real OpenAI multimodal families keep vision.
+        #expect(OpenAIProvider.capabilities(for: "gpt-4o").contains(.vision))
+        #expect(OpenAIProvider.capabilities(for: "gpt-5.2").contains(.vision))
+
+        // Known multimodal families on OpenAI-compatible hosts gain vision
+        // even without "gpt" in the id (previously missed entirely).
+        #expect(OpenAIProvider.capabilities(for: "qwen3-vl:235b-cloud").contains(.vision))
+        #expect(OpenAIProvider.capabilities(for: "llama3.2-vision:11b").contains(.vision))
+        #expect(OpenAIProvider.capabilities(for: "llava:13b").contains(.vision))
+
+        // Text/code families stay text-only.
+        #expect(!OpenAIProvider.capabilities(for: "qwen3-coder:480b-cloud").contains(.vision))
+        #expect(!OpenAIProvider.capabilities(for: "glm-5.3").contains(.vision))
+    }
+
     @Test func geminiCapabilityHeuristicsDoNotMarkAllThreeSeriesAsReasoning() async throws {
         let apiKey = "reasoning-test"
         GeminiModelsMockURLProtocol.setResponseData("""
