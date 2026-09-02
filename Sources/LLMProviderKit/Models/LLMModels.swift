@@ -113,6 +113,13 @@ public struct LLMRequest: Sendable {
 /// A single chunk of a streaming response.
 public enum LLMStreamChunk: Sendable {
     case text(String)
+    /// A delta of the model's separated reasoning (Ollama `thinking`,
+    /// OpenAI-compatible `reasoning` / `reasoning_content`, Anthropic
+    /// `thinking_delta`). Never part of the answer text — consumers that
+    /// accumulate `.text` into the reply must NOT append these; they exist so
+    /// UIs can show live "thinking" progress and so agent loops can tell a
+    /// reasoning-only turn (empty text, non-empty reasoning) from an empty one.
+    case reasoning(String)
     case toolCall(LLMToolCall)
     case finish(reason: LLMFinishReason?, usage: LLMUsage?)
     case error(Error)

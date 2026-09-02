@@ -178,6 +178,10 @@ public struct AnthropicProvider: LLMProvider {
             }
             return []
         case "content_block_delta":
+            // Extended-thinking deltas (`thinking_delta`) carry `thinking`, not `text`.
+            if let thinking = event.delta?.thinking, !thinking.isEmpty {
+                return [.reasoning(thinking)]
+            }
             // Text deltas
             if let text = event.delta?.text, !text.isEmpty {
                 return [.text(text)]
@@ -390,10 +394,11 @@ private struct AnthropicStreamEvent: Decodable {
     struct Delta: Decodable {
         let type: String?
         let text: String?
+        let thinking: String?
         let stopReason: String?
 
         enum CodingKeys: String, CodingKey {
-            case type, text
+            case type, text, thinking
             case stopReason = "stop_reason"
         }
     }

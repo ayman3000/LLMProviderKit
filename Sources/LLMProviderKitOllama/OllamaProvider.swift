@@ -144,6 +144,11 @@ public struct OllamaProvider: LLMProvider {
         let decoded = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
         var chunks: [LLMStreamChunk] = []
 
+        // Separated reasoning streams in its own field, interleaved before the
+        // answer content. Surface it as `.reasoning` so it never leaks into text.
+        if let thinking = decoded.message?.thinking, !thinking.isEmpty {
+            chunks.append(.reasoning(thinking))
+        }
         if let text = decoded.message?.content, !text.isEmpty {
             chunks.append(.text(text))
         }
