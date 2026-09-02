@@ -107,6 +107,12 @@ public struct OpenAIProvider: LLMProvider {
         let decoded = try JSONDecoder().decode(OpenAIStreamChunk.self, from: data)
         var chunks: [LLMStreamChunk] = []
 
+        // OpenAI-compatible reasoning deltas: Ollama's /v1 proxy uses `reasoning`,
+        // DeepSeek / GLM / vLLM use `reasoning_content`. Either way it is not
+        // answer text.
+        if let reasoning = decoded.choices.first?.delta?.reasoningDelta, !reasoning.isEmpty {
+            chunks.append(.reasoning(reasoning))
+        }
         if let delta = decoded.choices.first?.delta?.content, !delta.isEmpty {
             chunks.append(.text(delta))
         }
@@ -261,10 +267,16 @@ private struct OpenAIStreamChunk: Decodable {
             let role: String?
             let content: String?
             let toolCalls: [OpenAIToolCall]?
+            let reasoning: String?
+            let reasoningContent: String?
+
+            /// Whichever reasoning field this server populates.
+            var reasoningDelta: String? { reasoning ?? reasoningContent }
 
             enum CodingKeys: String, CodingKey {
-                case role, content
+                case role, content, reasoning
                 case toolCalls = "tool_calls"
+                case reasoningContent = "reasoning_content"
             }
         }
         let delta: Delta?

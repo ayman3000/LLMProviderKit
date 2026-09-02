@@ -113,6 +113,43 @@ struct ProviderTests {
         #expect(chunksEqual(chunks[1], .finish(reason: .stop, usage: LLMUsage(promptTokens: 10, completionTokens: 3, totalTokens: 13))))
     }
 
+    @Test func ollamaStreamingThinkingChunkIsReasoningNotText() async throws {
+        let provider = OllamaProvider(configuration: OllamaProvider.local(model: "glm"))
+        let line = #"{"model":"glm","message":{"role":"assistant","content":"","thinking":"Let me check"},"done":false}"#
+        let request = LLMRequest(model: "glm", messages: [.user("Hi")])
+        let chunks = try provider.parseStreamLine(line, request: request)
+
+        #expect(chunks.count == 1)
+        #expect(chunksEqual(chunks[0], .reasoning("Let me check")))
+    }
+
+    @Test func openAIStreamingReasoningDeltas() async throws {
+        let provider = OpenAIProvider(configuration: OpenAIProvider.openAI(apiKey: "test", model: "x"))
+        let request = LLMRequest(model: "x", messages: [.user("Hi")])
+        // Ollama's /v1 proxy shape.
+        let a = try provider.parseStreamLine(
+            #"data: {"id":"1","object":"chat.completion.chunk","created":0,"model":"x","choices":[{"index":0,"delta":{"reasoning":"hmm"},"finish_reason":null}]}"#,
+            request: request)
+        #expect(a.count == 1)
+        #expect(chunksEqual(a[0], .reasoning("hmm")))
+        // DeepSeek / GLM shape.
+        let b = try provider.parseStreamLine(
+            #"data: {"id":"1","object":"chat.completion.chunk","created":0,"model":"x","choices":[{"index":0,"delta":{"reasoning_content":"why"},"finish_reason":null}]}"#,
+            request: request)
+        #expect(b.count == 1)
+        #expect(chunksEqual(b[0], .reasoning("why")))
+    }
+
+    @Test func anthropicStreamingThinkingDelta() async throws {
+        let provider = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "test", model: "claude"))
+        let request = LLMRequest(model: "claude", messages: [.user("Hi")])
+        let chunks = try provider.parseStreamLine(
+            #"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"step 1"}}"#,
+            request: request)
+        #expect(chunks.count == 1)
+        #expect(chunksEqual(chunks[0], .reasoning("step 1")))
+    }
+
     // MARK: - OpenAI
 
     @Test func openAINonStreamingResponse() async throws {
@@ -772,6 +809,8 @@ extension ProviderTests {
 func chunksEqual(_ lhs: LLMStreamChunk, _ rhs: LLMStreamChunk) -> Bool {
     switch (lhs, rhs) {
     case (.text(let a), .text(let b)):
+        return a == b
+    case (.reasoning(let a), .reasoning(let b)):
         return a == b
     case (.finish(let r1, let u1), .finish(let r2, let u2)):
         return r1 == r2 && u1 == u2
