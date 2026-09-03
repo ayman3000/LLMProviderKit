@@ -75,6 +75,22 @@ public struct LLMModelReleaseStage: RawRepresentable, Sendable, Hashable, Codabl
     public static let deprecated = LLMModelReleaseStage(rawValue: "deprecated")
 }
 
+/// Provider-advertised list price for a model, in USD per one million tokens.
+/// Present when the provider's catalog reports it (OpenRouter does); apps use
+/// it for cost estimates in preference to hand-maintained tables.
+public struct LLMModelPricing: Sendable, Hashable, Codable {
+    public let inputPerMillionTokens: Double
+    public let outputPerMillionTokens: Double
+
+    public init(inputPerMillionTokens: Double, outputPerMillionTokens: Double) {
+        self.inputPerMillionTokens = inputPerMillionTokens
+        self.outputPerMillionTokens = outputPerMillionTokens
+    }
+
+    /// True for models the provider serves at no charge.
+    public var isFree: Bool { inputPerMillionTokens == 0 && outputPerMillionTokens == 0 }
+}
+
 /// Metadata for a single model from a provider.
 public struct LLMModelInfo: Sendable, Identifiable, Hashable, Codable {
     /// Provider-specific model identifier, e.g. `gpt-4o` or `llama3.2`.
@@ -104,6 +120,9 @@ public struct LLMModelInfo: Sendable, Identifiable, Hashable, Codable {
     /// Optional human-readable notes for picker/tooltips/docs.
     public let notes: String?
 
+    /// List price when the provider reports one (see `LLMModelPricing`).
+    public let pricing: LLMModelPricing?
+
     public init(
         id: String,
         providerName: String,
@@ -113,7 +132,8 @@ public struct LLMModelInfo: Sendable, Identifiable, Hashable, Codable {
         categories: Set<LLMModelCategory> = [],
         releaseStage: LLMModelReleaseStage? = nil,
         isDeprecated: Bool = false,
-        notes: String? = nil
+        notes: String? = nil,
+        pricing: LLMModelPricing? = nil
     ) {
         self.id = id
         self.providerName = providerName
@@ -124,6 +144,7 @@ public struct LLMModelInfo: Sendable, Identifiable, Hashable, Codable {
         self.releaseStage = releaseStage
         self.isDeprecated = isDeprecated
         self.notes = notes
+        self.pricing = pricing
     }
 }
 
@@ -148,7 +169,8 @@ extension LLMModelInfo {
             categories: categories.isEmpty ? curated.categories : categories.union(curated.categories),
             releaseStage: releaseStage ?? curated.releaseStage,
             isDeprecated: isDeprecated || curated.isDeprecated,
-            notes: notes ?? curated.notes
+            notes: notes ?? curated.notes,
+            pricing: pricing ?? curated.pricing
         )
     }
 }

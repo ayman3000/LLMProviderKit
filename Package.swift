@@ -20,6 +20,7 @@ let package = Package(
         .library(name: "LLMProviderKitOpenAI", targets: ["LLMProviderKitOpenAI"]),
         .library(name: "LLMProviderKitGemini", targets: ["LLMProviderKitGemini"]),
         .library(name: "LLMProviderKitAnthropic", targets: ["LLMProviderKitAnthropic"]),
+        .library(name: "LLMProviderKitOpenRouter", targets: ["LLMProviderKitOpenRouter"]),
     ],
     dependencies: [],
     targets: [
@@ -48,6 +49,11 @@ let package = Package(
             dependencies: ["LLMProviderKit"],
             path: "Sources/LLMProviderKitAnthropic"
         ),
+        .target(
+            name: "LLMProviderKitOpenRouter",
+            dependencies: ["LLMProviderKit", "LLMProviderKitOpenAI"],
+            path: "Sources/LLMProviderKitOpenRouter"
+        ),
         .testTarget(
             name: "LLMProviderKitTests",
             dependencies: [
@@ -55,7 +61,8 @@ let package = Package(
                 "LLMProviderKitOllama",
                 "LLMProviderKitOpenAI",
                 "LLMProviderKitGemini",
-                "LLMProviderKitAnthropic"
+                "LLMProviderKitAnthropic",
+                "LLMProviderKitOpenRouter"
             ],
             path: "Tests/LLMProviderKitTests"
         ),
