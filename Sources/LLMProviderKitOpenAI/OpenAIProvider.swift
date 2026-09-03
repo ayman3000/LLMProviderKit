@@ -68,6 +68,11 @@ public struct OpenAIProvider: LLMProvider {
             "stream": stream
         ]
 
+        // Ask for real token usage on the final stream chunk (OpenAI, OpenRouter
+        // and Ollama's /v1 all honor it). Without it a streamed turn reports no
+        // usage and the caller has to estimate tokens — and therefore cost.
+        if stream { bodyDict["stream_options"] = ["include_usage": true] }
+
         if let temp = request.temperature { bodyDict["temperature"] = temp }
         if let topP = request.topP { bodyDict["top_p"] = topP }
         if let maxTokens = request.maxTokens { bodyDict["max_tokens"] = maxTokens }
@@ -127,6 +132,12 @@ public struct OpenAIProvider: LLMProvider {
             }
         }
 
+        // Usage arrives either on the finishing chunk (OpenRouter, Ollama) or on
+        // a trailing chunk with no choices (OpenAI, with stream_options). Attach
+        // it to a finish chunk either way so consumers see one `.finish(usage:)`.
+        let usage = decoded.usage.map {
+            LLMUsage(promptTokens: $0.promptTokens, completionTokens: $0.completionTokens, totalTokens: $0.totalTokens)
+        }
         if let reason = decoded.choices.first?.finishReason {
             let mapped: LLMFinishReason = switch reason {
             case "stop": .stop
@@ -135,7 +146,9 @@ public struct OpenAIProvider: LLMProvider {
             case "tool_calls": .toolCalls
             default: .unknown
             }
-            chunks.append(.finish(reason: mapped, usage: nil))
+            chunks.append(.finish(reason: mapped, usage: usage))
+        } else if let usage {
+            chunks.append(.finish(reason: .stop, usage: usage))
         }
 
         return chunks
@@ -288,8 +301,20 @@ private struct OpenAIStreamChunk: Decodable {
         }
     }
 
+    struct StreamUsage: Decodable {
+        let promptTokens: Int?
+        let completionTokens: Int?
+        let totalTokens: Int?
+        enum CodingKeys: String, CodingKey {
+            case promptTokens = "prompt_tokens"
+            case completionTokens = "completion_tokens"
+            case totalTokens = "total_tokens"
+        }
+    }
+
     let id: String?
     let choices: [Choice]
+    let usage: StreamUsage?
 }
 
 // MARK: - OpenAI models API types

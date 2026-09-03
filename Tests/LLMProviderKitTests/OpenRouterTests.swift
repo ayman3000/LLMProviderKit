@@ -58,6 +58,7 @@ struct OpenRouterTests {
     @Test func vendorPrefix() {
         #expect(OpenRouterCatalog.vendor(of: "google/gemini-2.5-pro") == "google")
         #expect(OpenRouterCatalog.vendor(of: "noslash") == "noslash")
+        #expect(OpenRouterCatalog.vendor(of: "~anthropic/claude-latest") == "anthropic")
     }
 
     @Test func attributionHeadersAndBearer() throws {
