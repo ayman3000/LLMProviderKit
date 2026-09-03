@@ -150,6 +150,28 @@ struct ProviderTests {
         #expect(chunksEqual(chunks[0], .reasoning("step 1")))
     }
 
+    @Test func openAIStreamRequestsUsageAndParsesTrailingUsageChunk() async throws {
+        let provider = OpenAIProvider(configuration: OpenAIProvider.openAI(apiKey: "test", model: "x"))
+        let request = LLMRequest(model: "x", messages: [.user("Hi")])
+        let url = try provider.prepareRequest(request, stream: true)
+        let body = try JSONSerialization.jsonObject(with: url.httpBody!) as! [String: Any]
+        #expect((body["stream_options"] as? [String: Bool])?["include_usage"] == true)
+
+        // OpenAI: usage on a trailing chunk with no choices.
+        let trailing = try provider.parseStreamLine(
+            #"data: {"id":"1","object":"chat.completion.chunk","created":0,"model":"x","choices":[],"usage":{"prompt_tokens":120,"completion_tokens":30,"total_tokens":150}}"#,
+            request: request)
+        #expect(trailing.count == 1)
+        #expect(chunksEqual(trailing[0], .finish(reason: .stop, usage: LLMUsage(promptTokens: 120, completionTokens: 30, totalTokens: 150))))
+
+        // OpenRouter / Ollama: usage on the finishing chunk itself.
+        let finishing = try provider.parseStreamLine(
+            #"data: {"id":"1","object":"chat.completion.chunk","created":0,"model":"x","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}"#,
+            request: request)
+        #expect(finishing.count == 1)
+        #expect(chunksEqual(finishing[0], .finish(reason: .stop, usage: LLMUsage(promptTokens: 7, completionTokens: 2, totalTokens: 9))))
+    }
+
     // MARK: - OpenAI
 
     @Test func openAINonStreamingResponse() async throws {

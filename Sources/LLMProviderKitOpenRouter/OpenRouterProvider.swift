@@ -146,7 +146,10 @@ public enum OpenRouterCatalog {
     /// The vendor segment of an OpenRouter id (`anthropic/claude-sonnet-4` →
     /// `anthropic`), for grouping long catalogs in a picker.
     public static func vendor(of modelID: String) -> String {
-        modelID.split(separator: "/", maxSplits: 1).first.map(String.init) ?? modelID
+        let raw = modelID.split(separator: "/", maxSplits: 1).first.map(String.init) ?? modelID
+        // `~anthropic/claude-latest` is OpenRouter's alias form (always the newest
+        // model in a family) — same vendor, so the tilde is dropped.
+        return raw.hasPrefix("~") ? String(raw.dropFirst()) : raw
     }
 
     // MARK: - Wire types
