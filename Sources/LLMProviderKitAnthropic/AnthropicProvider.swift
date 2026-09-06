@@ -126,29 +126,61 @@ public struct AnthropicProvider: LLMProvider {
             messages.append(msgDict)
         }
 
-        bodyDict["messages"] = messages
+        // Prompt caching. Anthropic caches nothing unless asked: a breakpoint on
+        // the last block of the final message caches the whole prefix
+        // (tools → system → messages) up to it, and the next call's lookup
+        // walks back from its own breakpoint through earlier block boundaries,
+        // so an append-only conversation is a hit turn after turn. Below the
+        // provider's minimum prefix size the marker is simply ignored.
+        // Observed 2026-09-06: without this, cache_read_input_tokens was
+        // never reported for any Naseem call.
+        bodyDict["messages"] = Self.markingLastBlockForCache(messages)
 
         if let sys = systemText {
-            bodyDict["system"] = sys
+            bodyDict["system"] = [["type": "text", "text": sys, "cache_control": Self.ephemeral]]
         }
 
         if let temp = request.temperature { bodyDict["temperature"] = temp }
         if let topP = request.topP { bodyDict["top_p"] = topP }
 
-        // Tools (Anthropic format: name, description, input_schema)
+        // Tools (Anthropic format: name, description, input_schema). The last
+        // tool carries a breakpoint so the (large, static) tool block caches
+        // even when system/messages change.
         if !request.tools.isEmpty {
-            bodyDict["tools"] = request.tools.map { tool -> [String: Any] in
+            var tools = request.tools.map { tool -> [String: Any] in
                 [
                     "name": tool.name,
                     "description": tool.description,
                     "input_schema": tool.parameters
                 ]
             }
+            tools[tools.count - 1]["cache_control"] = Self.ephemeral
+            bodyDict["tools"] = tools
             bodyDict["tool_choice"] = ["type": "auto"]
         }
 
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
         return urlRequest
+    }
+
+    static let ephemeral: [String: String] = ["type": "ephemeral"]
+
+    /// Put a cache breakpoint on the last content block of the last message.
+    /// String content becomes a single text block so it can carry the marker.
+    static func markingLastBlockForCache(_ messages: [[String: Any]]) -> [[String: Any]] {
+        guard var last = messages.last else { return messages }
+        if let text = last["content"] as? String {
+            guard !text.isEmpty else { return messages }
+            last["content"] = [["type": "text", "text": text, "cache_control": ephemeral]]
+        } else if var blocks = last["content"] as? [[String: Any]], !blocks.isEmpty {
+            blocks[blocks.count - 1]["cache_control"] = ephemeral
+            last["content"] = blocks
+        } else {
+            return messages
+        }
+        var out = messages
+        out[out.count - 1] = last
+        return out
     }
 
     public func parseStreamLine(_ line: String, request: LLMRequest) throws -> [LLMStreamChunk] {

@@ -1157,4 +1157,42 @@ struct InProcessProviderTests {
             _ = try provider.prepareRequest(request(), stream: false)
         }
     }
+
+    // MARK: - Anthropic prompt caching
+
+    @Test func anthropicRequestCarriesCacheBreakpoints() throws {
+        let provider = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "test", model: "claude"))
+        let tool = LLMToolDefinition(name: "read_file", description: "Read a file", parameters: ["type": "object"])
+        let request = LLMRequest(model: "claude",
+                                 messages: [.system("You are Naseem."), .user("Hi"),
+                                            LLMMessage(role: .assistant, content: "Hello"), .user("Read x")],
+                                 tools: [tool, tool])
+        let httpBody = try #require(provider.prepareRequest(request, stream: false).httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: httpBody) as? [String: Any])
+
+        let system = try #require(body["system"] as? [[String: Any]])
+        #expect((system.last?["cache_control"] as? [String: String])?["type"] == "ephemeral")
+
+        let tools = try #require(body["tools"] as? [[String: Any]])
+        #expect(tools.first?["cache_control"] == nil)
+        #expect((tools.last?["cache_control"] as? [String: String])?["type"] == "ephemeral")
+
+        let messages = try #require(body["messages"] as? [[String: Any]])
+        // Only the final message carries a breakpoint; earlier ones stay byte-stable.
+        #expect(messages.dropLast().allSatisfy { $0["content"] is String })
+        let lastBlocks = try #require(messages.last?["content"] as? [[String: Any]])
+        #expect(lastBlocks.last?["text"] as? String == "Read x")
+        #expect((lastBlocks.last?["cache_control"] as? [String: String])?["type"] == "ephemeral")
+    }
+
+    @Test func anthropicToolResultKeepsBlocksAndGetsBreakpoint() {
+        let msgs: [[String: Any]] = [
+            ["role": "user", "content": [["type": "tool_result", "tool_use_id": "t1", "content": [["type": "text", "text": "ok"]]]]],
+        ]
+        let marked = AnthropicProvider.markingLastBlockForCache(msgs)
+        let blocks = marked.last?["content"] as? [[String: Any]]
+        #expect(blocks?.count == 1)
+        #expect((blocks?.last?["cache_control"] as? [String: String])?["type"] == "ephemeral")
+        #expect(blocks?.last?["type"] as? String == "tool_result")
+    }
 }
