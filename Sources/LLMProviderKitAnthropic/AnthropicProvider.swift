@@ -194,7 +194,8 @@ public struct AnthropicProvider: LLMProvider {
                 LLMUsage(
                     promptTokens: u.inputTokens,
                     completionTokens: u.outputTokens,
-                    totalTokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0)
+                    totalTokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0),
+                    cachedTokens: u.cacheReadInputTokens
                 )
             }
             let reason = event.delta?.stopReason.map { r -> LLMFinishReason in
@@ -241,7 +242,8 @@ public struct AnthropicProvider: LLMProvider {
             LLMUsage(
                 promptTokens: u.inputTokens,
                 completionTokens: u.outputTokens,
-                totalTokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0)
+                totalTokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0),
+                cachedTokens: u.cacheReadInputTokens
             )
         }
 
@@ -369,10 +371,12 @@ private struct AnthropicResponse: Decodable {
     struct Usage: Decodable {
         let inputTokens: Int?
         let outputTokens: Int?
+        let cacheReadInputTokens: Int?
 
         enum CodingKeys: String, CodingKey {
             case inputTokens = "input_tokens"
             case outputTokens = "output_tokens"
+            case cacheReadInputTokens = "cache_read_input_tokens"
         }
     }
 
@@ -412,10 +416,12 @@ private struct AnthropicStreamEvent: Decodable {
     struct Usage: Decodable {
         let inputTokens: Int?
         let outputTokens: Int?
+        let cacheReadInputTokens: Int?
 
         enum CodingKeys: String, CodingKey {
             case inputTokens = "input_tokens"
             case outputTokens = "output_tokens"
+            case cacheReadInputTokens = "cache_read_input_tokens"
         }
     }
 

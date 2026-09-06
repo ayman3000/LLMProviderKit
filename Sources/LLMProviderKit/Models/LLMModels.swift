@@ -139,11 +139,18 @@ public struct LLMUsage: Sendable, Equatable {
     public let promptTokens: Int?
     public let completionTokens: Int?
     public let totalTokens: Int?
+    /// Prompt tokens the provider served from its prompt cache (a subset of
+    /// `promptTokens`): OpenAI `prompt_tokens_details.cached_tokens` /
+    /// Responses `input_tokens_details.cached_tokens`, Anthropic
+    /// `cache_read_input_tokens`. nil = the provider didn't say.
+    public let cachedTokens: Int?
 
-    public init(promptTokens: Int? = nil, completionTokens: Int? = nil, totalTokens: Int? = nil) {
+    public init(promptTokens: Int? = nil, completionTokens: Int? = nil, totalTokens: Int? = nil,
+                cachedTokens: Int? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = totalTokens
+        self.cachedTokens = cachedTokens
     }
 }
 

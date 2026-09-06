@@ -136,7 +136,8 @@ public struct OpenAIProvider: LLMProvider {
         // a trailing chunk with no choices (OpenAI, with stream_options). Attach
         // it to a finish chunk either way so consumers see one `.finish(usage:)`.
         let usage = decoded.usage.map {
-            LLMUsage(promptTokens: $0.promptTokens, completionTokens: $0.completionTokens, totalTokens: $0.totalTokens)
+            LLMUsage(promptTokens: $0.promptTokens, completionTokens: $0.completionTokens, totalTokens: $0.totalTokens,
+                     cachedTokens: $0.promptTokensDetails?.cachedTokens)
         }
         if let reason = decoded.choices.first?.finishReason {
             let mapped: LLMFinishReason = switch reason {
@@ -181,7 +182,8 @@ public struct OpenAIProvider: LLMProvider {
             LLMUsage(
                 promptTokens: $0.promptTokens,
                 completionTokens: $0.completionTokens,
-                totalTokens: $0.totalTokens
+                totalTokens: $0.totalTokens,
+                cachedTokens: $0.promptTokensDetails?.cachedTokens
             )
         }
 
@@ -251,13 +253,16 @@ private struct OpenAIChatResponse: Decodable {
         let promptTokens: Int
         let completionTokens: Int
         let totalTokens: Int
+        let promptTokensDetails: OpenAIPromptTokensDetails?
 
         enum CodingKeys: String, CodingKey {
             case promptTokens = "prompt_tokens"
             case completionTokens = "completion_tokens"
             case totalTokens = "total_tokens"
+            case promptTokensDetails = "prompt_tokens_details"
         }
     }
+
 
     let id: String?
     let choices: [Choice]
@@ -305,10 +310,12 @@ private struct OpenAIStreamChunk: Decodable {
         let promptTokens: Int?
         let completionTokens: Int?
         let totalTokens: Int?
+        let promptTokensDetails: OpenAIPromptTokensDetails?
         enum CodingKeys: String, CodingKey {
             case promptTokens = "prompt_tokens"
             case completionTokens = "completion_tokens"
             case totalTokens = "total_tokens"
+            case promptTokensDetails = "prompt_tokens_details"
         }
     }
 
@@ -495,4 +502,11 @@ extension OpenAIProvider {
             defaultModel: model
         )
     }
+}
+
+/// `usage.prompt_tokens_details` (Chat Completions): how much of the prompt
+/// was served from OpenAI's prompt cache.
+struct OpenAIPromptTokensDetails: Decodable {
+    let cachedTokens: Int?
+    enum CodingKeys: String, CodingKey { case cachedTokens = "cached_tokens" }
 }
