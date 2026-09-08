@@ -55,7 +55,7 @@ public protocol LLMProvider: Sendable {
 }
 
 extension LLMProvider {
-    public var urlSession: URLSession { .shared }
+    public var urlSession: URLSession { LLMNetworking.session }
 
     // Default (throwing) implementations of the HTTP-shaped hooks, so a provider
     // that overrides `complete`/`stream` (in-process, no URLRequest) doesn't have
@@ -197,4 +197,24 @@ extension LLMProvider {
         =========================================\n
         """)
     }
+}
+
+/// The session every provider uses unless it is given another one.
+///
+/// `URLSession.shared` gives up after 60 s without data. A large model that
+/// is serving several requests at once can take longer than that before its
+/// first token, and every retry then hits the same wall — a review with three
+/// concurrent sub-agents on Ollama Cloud lost two of them exactly this way
+/// (2026-09-08). Generous per-request idle timeout; a long overall ceiling so
+/// a slow streamed answer is never cut off mid-way.
+public enum LLMNetworking {
+    public static let requestTimeout: TimeInterval = 300
+    public static let resourceTimeout: TimeInterval = 1800
+
+    public static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = requestTimeout
+        config.timeoutIntervalForResource = resourceTimeout
+        return URLSession(configuration: config)
+    }()
 }

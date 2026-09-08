@@ -16,7 +16,7 @@ public struct GeminiProvider: LLMProvider {
     public let configuration: LLMProviderConfiguration
     public let urlSession: URLSession
 
-    public init(configuration: LLMProviderConfiguration, urlSession: URLSession = .shared) {
+    public init(configuration: LLMProviderConfiguration, urlSession: URLSession = LLMNetworking.session) {
         self.configuration = configuration
         self.urlSession = urlSession
     }

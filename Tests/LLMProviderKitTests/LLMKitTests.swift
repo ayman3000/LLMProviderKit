@@ -1196,3 +1196,19 @@ struct InProcessProviderTests {
         #expect(blocks?.last?["type"] as? String == "tool_result")
     }
 }
+
+struct LLMNetworkingTests {
+    @Test func defaultSessionWaitsLongerThanTheSystemDefault() {
+        let c = LLMNetworking.session.configuration
+        #expect(c.timeoutIntervalForRequest == 300)
+        #expect(c.timeoutIntervalForResource == 1800)
+        #expect(c.timeoutIntervalForRequest > URLSessionConfiguration.default.timeoutIntervalForRequest)
+    }
+
+    @Test func providersInheritTheSharedSession() {
+        let openai = OpenAIProvider(configuration: OpenAIProvider.openAI(apiKey: "k", model: "m"))
+        #expect(openai.urlSession === LLMNetworking.session)
+        let anthropic = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "k", model: "m"))
+        #expect(anthropic.urlSession === LLMNetworking.session)
+    }
+}
