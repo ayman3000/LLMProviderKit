@@ -88,8 +88,8 @@ import LLMProviderKitOllama
 struct OllamaEffortTests {
     @Test func glmVersionsDifferAndBothAreDeclared() {
         // 5.2's knob starts at its minimum thinking level; 5.3 is graded.
-        #expect(OllamaEffort.vocabulary(for: "glm-5.2:cloud", cloud: true)?.supported == [.high, .max])
-        #expect(OllamaEffort.vocabulary(for: "glm-5.3", cloud: false)?.supported
+        #expect(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: "glm-5.2:cloud")?.supported == [.high, .max])
+        #expect(EffortCatalog.shared.vocabulary(provider: "ollama", model: "glm-5.3")?.supported
                 == [.low, .medium, .high, .max])
     }
 
@@ -97,38 +97,38 @@ struct OllamaEffortTests {
     /// actually in use — this is the case the old boolean gate would have sent
     /// straight through.
     @Test func mediumResolvesOnAModelWithoutIt() {
-        let glm52 = try! #require(OllamaEffort.vocabulary(for: "glm-5.2:cloud", cloud: true))
+        let glm52 = try! #require(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: "glm-5.2:cloud"))
         #expect(glm52.supported.contains(.medium) == false)
         #expect(glm52.clamp(.medium) == .high)   // the floor, not a refusal
     }
 
     @Test func kimiK3IsMatchedAsADelimitedToken() {
         for id in ["k3", "k3-256k", "kimi-k3-cot"] {
-            #expect(OllamaEffort.vocabulary(for: id, cloud: true)?.supported == [.low, .high, .max],
+            #expect(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: id)?.supported == [.low, .high, .max],
                     "\(id) should be K3")
         }
         // K2-era names must not match the K3 token.
-        #expect(OllamaEffort.vocabulary(for: "kimi-k2.6", cloud: true)?.supported
+        #expect(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: "kimi-k2.6")?.supported
                 == [.low, .medium, .high])
     }
 
     /// K3's `high` is its middle AND its server default, so ladder arithmetic
     /// (which would pick `low`) is wrong and the override is right.
     @Test func kimiK3MapsMediumUpwardByVendorRule() {
-        let k3 = try! #require(OllamaEffort.vocabulary(for: "k3", cloud: true))
+        let k3 = try! #require(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: "k3"))
         #expect(k3.clamp(.medium) == .high)
     }
 
     @Test func minimalNeverReachesOllamaCloud() {
         // The cloud wire answers 400 for `minimal`; it must be clamped away.
-        let cloud = try! #require(OllamaEffort.vocabulary(for: "glm-5.3", cloud: true))
+        let cloud = try! #require(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: "glm-5.3"))
         #expect(cloud.supported.contains(.minimal) == false)
         #expect(cloud.clamp(.minimal) == .low)
     }
 
     @Test func unknownModelsAreSentNoLevel() {
         for id in ["llama3.2", "mistral-small", "something-new"] {
-            #expect(OllamaEffort.vocabulary(for: id, cloud: false) == nil, "\(id) must be undeclared")
+            #expect(EffortCatalog.shared.vocabulary(provider: "ollama", model: id) == nil, "\(id) must be undeclared")
         }
     }
 

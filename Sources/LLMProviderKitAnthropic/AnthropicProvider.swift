@@ -560,34 +560,15 @@ public enum AnthropicModel {
 // MARK: - Configuration presets
 
 extension AnthropicProvider {
-    /// Model ids that accept `output_config.effort`, from Anthropic's effort
-    /// documentation (read 2026-09-15). Matched by PREFIX so dated variants
-    /// (`claude-opus-4-5-20251101`) and point releases (`claude-fable-5-1`)
-    /// resolve without a new entry.
-    ///
-    /// A list rather than a signal because Anthropic advertises no per-model
-    /// capability here, and sending a level to a model that does not take one
-    /// is an HTTP 400. A model this list has not heard of therefore fails
-    /// CLOSED — the control stays hidden — which costs a picker entry, where
-    /// guessing costs a failed request for a paying customer.
-    private static let effortCapableModelPrefixes = [
-        "claude-fable-5", "claude-mythos-5", "claude-mythos-preview",
-        "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
-        "claude-opus-4-5", "claude-sonnet-5", "claude-sonnet-4-6",
-    ]
-
     /// Whether this model accepts `LLMRequest.reasoningEffort`.
     public static func acceptsReasoningEffort(_ modelID: String) -> Bool {
-        effortCapableModelPrefixes.contains { modelID.hasPrefix($0) }
+        EffortCatalog.shared.vocabulary(provider: name, model: modelID) != nil
     }
 
-    /// Anthropic's five levels, uniform across every model that takes one
-    /// (docs read 2026-09-15). `high` is the API default and is identical to
-    /// omitting the field. `none` and `minimal` are not Anthropic levels, so a
-    /// request for either clamps up to `low` — the weakest it can express.
+    /// Declared in the kit's one `EffortCatalog`, which an override file can
+    /// correct without a release.
     public func effortVocabulary(for model: String) -> LLMEffortVocabulary? {
-        guard Self.acceptsReasoningEffort(model) else { return nil }
-        return LLMEffortVocabulary(supported: [.low, .medium, .high, .xhigh, .max])
+        EffortCatalog.shared.vocabulary(provider: Self.name, model: model)
     }
 
     /// One rule for curated and live entries alike, so the two cannot drift.

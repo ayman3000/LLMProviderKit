@@ -22,7 +22,7 @@ public struct OllamaProvider: LLMProvider {
     /// Native `/api/chat`. See `OllamaEffort` for what each family accepts and
     /// why an unrecognised model is sent no level at all.
     public func effortVocabulary(for model: String) -> LLMEffortVocabulary? {
-        OllamaEffort.vocabulary(for: model, cloud: false)
+        EffortCatalog.shared.vocabulary(provider: Self.name, model: model)
     }
 
     public func prepareRequest(_ request: LLMRequest, stream: Bool) throws -> URLRequest {
