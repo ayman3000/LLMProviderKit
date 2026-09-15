@@ -146,7 +146,12 @@ extension LLMProvider {
                     resolvedRequest.model = model
                     let urlRequest = try self.prepareRequest(resolvedRequest, stream: true)
                     let (bytes, response) = try await self.urlSession.bytes(for: urlRequest)
-                    try Self.verifyHTTPResponse(response, data: nil)
+                    // A failing stream still has a body, and it is the only
+                    // thing that says WHY. Passing nil here left every provider
+                    // reporting a bare "HTTP error: 404" — a number the user
+                    // can do nothing with — while the server was explaining
+                    // itself in the response the byte stream still held.
+                    try await Self.verifyStreamingResponse(response, bytes: bytes)
 
                     var pendingLineBytes = Data()
                     for try await byte in bytes {
@@ -186,6 +191,32 @@ extension LLMProvider {
             continuation.onTermination = { _ in
                 task.cancel()
             }
+        }
+    }
+
+    /// Verify a streaming response, reading the error body when there is one.
+    ///
+    /// The body is drained only on a non-2xx, and capped: an error payload is
+    /// small, and a stream that keeps talking must not be buffered whole.
+    public static func verifyStreamingResponse(
+        _ response: URLResponse,
+        bytes: URLSession.AsyncBytes,
+        maxErrorBodyBytes: Int = 64 * 1024
+    ) async throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw LLMError.networkError("Non-HTTP response received.")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            var body = Data()
+            // Best-effort: a body that fails mid-read still beats no body, so
+            // a throw here must not replace the status the caller needs.
+            do {
+                for try await byte in bytes {
+                    body.append(byte)
+                    if body.count >= maxErrorBodyBytes { break }
+                }
+            } catch { /* keep whatever arrived */ }
+            throw LLMError.httpError(http.statusCode, body.isEmpty ? nil : body)
         }
     }
 
