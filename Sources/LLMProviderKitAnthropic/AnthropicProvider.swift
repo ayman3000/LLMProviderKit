@@ -352,14 +352,19 @@ public struct AnthropicProvider: LLMProvider {
 
         let curatedByID = Dictionary(uniqueKeysWithValues: Self.curatedModels.map { ($0.id, $0) })
         return live.data.map { model in
-            LLMModelInfo(
+            let base = LLMModelInfo(
                 id: model.id,
                 providerName: Self.name,
                 displayName: model.displayName,
                 contextWindow: nil,
                 capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput],
                 categories: [.text, .vision, .multimodal]
-            ).enriched(with: curatedByID[model.id])
+            )
+            let enriched = base.enriched(with: curatedByID[model.id])
+            // A model the endpoint lists but the curated catalog has not heard
+            // of still gets the gate: it is decided from the id, not from
+            // curated metadata.
+            return Self.markingEffortCapability(enriched)
         }
     }
 
@@ -555,7 +560,51 @@ public enum AnthropicModel {
 // MARK: - Configuration presets
 
 extension AnthropicProvider {
-    public static let curatedModels: [LLMModelInfo] = [
+    /// Model ids that accept `output_config.effort`, from Anthropic's effort
+    /// documentation (read 2026-09-15). Matched by PREFIX so dated variants
+    /// (`claude-opus-4-5-20251101`) and point releases (`claude-fable-5-1`)
+    /// resolve without a new entry.
+    ///
+    /// A list rather than a signal because Anthropic advertises no per-model
+    /// capability here, and sending a level to a model that does not take one
+    /// is an HTTP 400. A model this list has not heard of therefore fails
+    /// CLOSED — the control stays hidden — which costs a picker entry, where
+    /// guessing costs a failed request for a paying customer.
+    private static let effortCapableModelPrefixes = [
+        "claude-fable-5", "claude-mythos-5", "claude-mythos-preview",
+        "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+        "claude-opus-4-5", "claude-sonnet-5", "claude-sonnet-4-6",
+    ]
+
+    /// Whether this model accepts `LLMRequest.reasoningEffort`.
+    public static func acceptsReasoningEffort(_ modelID: String) -> Bool {
+        effortCapableModelPrefixes.contains { modelID.hasPrefix($0) }
+    }
+
+    /// One rule for curated and live entries alike, so the two cannot drift.
+    static func markingEffortCapability(_ model: LLMModelInfo) -> LLMModelInfo {
+        guard acceptsReasoningEffort(model.id) else { return model }
+        var capabilities = model.capabilities
+        capabilities.insert(.reasoningEffort)
+        return LLMModelInfo(
+            id: model.id,
+            providerName: model.providerName,
+            displayName: model.displayName,
+            contextWindow: model.contextWindow,
+            capabilities: capabilities,
+            categories: model.categories,
+            releaseStage: model.releaseStage,
+            isDeprecated: model.isDeprecated,
+            notes: model.notes,
+            pricing: model.pricing
+        )
+    }
+
+    public static var curatedModels: [LLMModelInfo] {
+        rawCuratedModels.map(markingEffortCapability)
+    }
+
+    private static let rawCuratedModels: [LLMModelInfo] = [
         LLMModelInfo(
             id: AnthropicModel.fable5,
             providerName: name,

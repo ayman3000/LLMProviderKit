@@ -97,3 +97,32 @@ struct OpenRouterReasoningEffortTests {
         for key in plain.keys { #expect(withEffort[key] != nil, "effort dropped \(key)") }
     }
 }
+
+/// Anthropic advertises no per-model signal for effort, so the gate is a
+/// documented id list. It must fail CLOSED: an unknown model hides the control
+/// rather than sending a level that answers 400.
+struct AnthropicEffortCapabilityTests {
+    @Test func documentedFamiliesAccessEffort() {
+        for id in ["claude-fable-5", "claude-fable-5-1", "claude-opus-5", "claude-sonnet-5",
+                   "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+                   "claude-opus-4-5-20251101", "claude-sonnet-4-6", "claude-mythos-5-1"] {
+            #expect(AnthropicProvider.acceptsReasoningEffort(id), "\(id) should accept effort")
+        }
+    }
+
+    @Test func everythingElseIsRefused() {
+        for id in ["claude-haiku-4-5-20251001", "claude-sonnet-4-20250514",
+                   "claude-3-opus-20240229", "claude-3-5-sonnet-20241022",
+                   "some-model-nobody-has-heard-of"] {
+            #expect(!AnthropicProvider.acceptsReasoningEffort(id), "\(id) must NOT accept effort")
+        }
+    }
+
+    @Test func curatedModelsCarryTheCapability() {
+        let byID = Dictionary(uniqueKeysWithValues:
+            AnthropicProvider.curatedModels.map { ($0.id, $0) })
+        #expect(byID[AnthropicModel.sonnet46]?.capabilities.contains(.reasoningEffort) == true)
+        #expect(byID[AnthropicModel.opus47]?.capabilities.contains(.reasoningEffort) == true)
+        #expect(byID[AnthropicModel.haiku45]?.capabilities.contains(.reasoningEffort) == false)
+    }
+}
