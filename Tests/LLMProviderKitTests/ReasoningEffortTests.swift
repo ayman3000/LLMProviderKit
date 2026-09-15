@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import LLMProviderKit
 @testable import LLMProviderKitAnthropic
+import LLMProviderKitOpenRouter
 
 /// Effort is additive: a request that does not ask for a level must produce the
 /// byte-for-byte body it produced before the parameter existed, because every
@@ -55,5 +56,44 @@ struct ReasoningEffortTests {
             #expect(withEffort[key] != nil, "effort dropped \(key) from the body")
         }
         #expect(withEffort.count == plain.count + 1)
+    }
+}
+
+/// OpenRouter takes effort one level up from the OpenAI-compatible body, so it
+/// is edited after the inner provider builds it. The untouched path matters
+/// most: with no level asked for, the body must be exactly what it was.
+struct OpenRouterReasoningEffortTests {
+    private static func provider() -> OpenRouterProvider {
+        OpenRouterProvider(configuration: LLMProviderConfiguration(
+            name: "openrouter",
+            baseURL: URL(string: "https://openrouter.ai/api/v1")!,
+            apiKey: "test-key"
+        ))
+    }
+
+    private static func body(effort: LLMReasoningEffort?) throws -> [String: Any] {
+        let request = LLMRequest(
+            model: "anthropic/claude-sonnet-4",
+            messages: [LLMMessage(role: .user, content: "hi")],
+            reasoningEffort: effort
+        )
+        let data = try #require(provider().prepareRequest(request, stream: false).httpBody)
+        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    @Test func noEffortLeavesTheBodyUntouched() throws {
+        #expect(try Self.body(effort: nil)["reasoning"] == nil)
+    }
+
+    @Test func effortBecomesTheReasoningObject() throws {
+        let reasoning = try #require(try Self.body(effort: .xhigh)["reasoning"] as? [String: Any])
+        #expect(reasoning["effort"] as? String == "xhigh")
+    }
+
+    @Test func effortAddsExactlyOneKey() throws {
+        let plain = try Self.body(effort: nil)
+        let withEffort = try Self.body(effort: .low)
+        #expect(withEffort.count == plain.count + 1)
+        for key in plain.keys { #expect(withEffort[key] != nil, "effort dropped \(key)") }
     }
 }

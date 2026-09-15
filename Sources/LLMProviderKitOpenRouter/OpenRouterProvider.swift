@@ -43,7 +43,24 @@ public struct OpenRouterProvider: LLMProvider {
     public func prepareRequest(_ request: LLMRequest, stream: Bool) throws -> URLRequest {
         var urlRequest = try inner.prepareRequest(request, stream: stream)
         applyAttribution(to: &urlRequest)
+        try applyReasoningEffort(request.reasoningEffort, to: &urlRequest)
         return urlRequest
+    }
+
+    /// OpenRouter takes effort as `reasoning: {effort: …}`, one level up from
+    /// the OpenAI-compatible body the inner provider builds — hence the edit
+    /// here rather than a parameter threaded through it.
+    ///
+    /// Nothing happens when no level is asked for: the body the inner provider
+    /// produced is returned untouched, byte for byte, so every existing caller
+    /// sends exactly what it sent before. OpenRouter's own five levels include
+    /// `minimal` and `none`, which this kit does not model.
+    private func applyReasoningEffort(_ effort: LLMReasoningEffort?, to urlRequest: inout URLRequest) throws {
+        guard let effort, let body = urlRequest.httpBody,
+              var json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        else { return }
+        json["reasoning"] = ["effort": effort.rawValue]
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: json, options: [])
     }
 
     public func parseStreamLine(_ line: String, request: LLMRequest) throws -> [LLMStreamChunk] {
@@ -104,7 +121,13 @@ public enum OpenRouterCatalog {
         if outputs.contains("image") { caps.insert(.imageGeneration) }
         if outputs.contains("audio") { caps.insert(.audioGeneration) }
         if params.contains("tools") { caps.insert(.tools) }
-        if params.contains("reasoning") || params.contains("include_reasoning") { caps.insert(.reasoning) }
+        if params.contains("reasoning") || params.contains("include_reasoning") {
+            caps.insert(.reasoning)
+            // OpenRouter advertises the reasoning parameter per model, so the
+            // same signal says an effort level is accepted. It omits the field
+            // entirely for non-reasoning and dynamic-router models.
+            caps.insert(.reasoningEffort)
+        }
         if params.contains("response_format") || params.contains("structured_outputs") { caps.insert(.structuredOutput) }
 
         var categories: Set<LLMModelCategory> = []
