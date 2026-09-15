@@ -554,7 +554,8 @@ public enum GeminiModel {
     public static let flashLite31 = "gemini-3.1-flash-lite"
     public static let pro31 = "gemini-3.1-pro"
     public static let flash30 = "gemini-3-flash"
-    // Gemini 2.5 family (still available)
+    // Gemini 2.5 family — closed to NEW API keys (Google, 2026-09-15);
+    // grandfathered keys still work, so these stay declared and deprecated.
     public static let flash = "gemini-2.5-flash"
     public static let flashLite = "gemini-2.5-flash-lite"
     public static let pro = "gemini-2.5-pro"
@@ -623,7 +624,9 @@ extension GeminiProvider {
             displayName: "Gemini 2.5 Flash",
             capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .structuredOutput],
             categories: [.text, .vision, .multimodal],
-            releaseStage: .stable
+            releaseStage: .stable,
+            isDeprecated: true,
+            notes: "Closed to new API keys — Google: \"no longer available to new users\" (observed 2026-09-15). Existing keys may still have access, so it is deprecated rather than removed."
         ),
         LLMModelInfo(
             id: GeminiModel.flashLite,
@@ -631,7 +634,9 @@ extension GeminiProvider {
             displayName: "Gemini 2.5 Flash-Lite",
             capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .structuredOutput],
             categories: [.text, .vision, .multimodal],
-            releaseStage: .stable
+            releaseStage: .stable,
+            isDeprecated: true,
+            notes: "Closed to new API keys — Google: \"no longer available to new users\" (observed 2026-09-15). Existing keys may still have access, so it is deprecated rather than removed."
         ),
         LLMModelInfo(
             id: GeminiModel.pro,
@@ -639,7 +644,9 @@ extension GeminiProvider {
             displayName: "Gemini 2.5 Pro",
             capabilities: [.chat, .textGeneration, .streaming, .tools, .vision, .imageInput, .reasoning, .structuredOutput],
             categories: [.text, .vision, .multimodal],
-            releaseStage: .stable
+            releaseStage: .stable,
+            isDeprecated: true,
+            notes: "Closed to new API keys — Google: \"no longer available to new users\" (observed 2026-09-15). Existing keys may still have access, so it is deprecated rather than removed."
         ),
     ]
 

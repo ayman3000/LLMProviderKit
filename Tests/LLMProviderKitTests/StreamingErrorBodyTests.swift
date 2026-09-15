@@ -96,3 +96,34 @@ struct StreamingErrorBodyTests {
         #expect(text.count < 100_000)
     }
 }
+
+import LLMProviderKitGemini
+
+/// Gemini's 2.5 family answers 404 for a key that never used it: "no longer
+/// available to new users". Grandfathered keys still work, so the entries stay
+/// and carry the flag rather than being deleted.
+struct GeminiDeprecationTests {
+    private func curated(_ id: String) -> LLMModelInfo? {
+        GeminiProvider.curatedModels.first { $0.id == id }
+    }
+
+    @Test func theClosedFamilyIsMarkedDeprecated() throws {
+        for id in [GeminiModel.flash, GeminiModel.flashLite, GeminiModel.pro] {
+            let model = try #require(curated(id), "\(id) should still be declared")
+            #expect(model.isDeprecated, "\(id) must be marked deprecated")
+            #expect(model.notes?.isEmpty == false, "\(id) should say why")
+        }
+    }
+
+    /// Deprecating must not quietly remove them: a key that still has access
+    /// keeps working, and the id remains resolvable.
+    @Test func theyAreDeprecatedNotDeleted() {
+        #expect(GeminiProvider.curatedModels.contains { $0.id == GeminiModel.pro })
+    }
+
+    @Test func theCurrentFamilyIsUntouched() throws {
+        for id in [GeminiModel.flash36, GeminiModel.flash35] {
+            #expect(try #require(curated(id)).isDeprecated == false, "\(id)")
+        }
+    }
+}
