@@ -45,7 +45,7 @@ struct ReasoningEffortTests {
     /// error, not a cosmetic change.
     @Test func everyLevelKeepsItsWireSpelling() {
         #expect(LLMReasoningEffort.allCases.map(\.rawValue).sorted()
-                == ["high", "low", "max", "medium", "minimal", "none", "xhigh"])
+                == ["high", "low", "max", "medium", "minimal", "none", "ultra", "xhigh"])
     }
 
     /// Effort must not disturb what was already in the body.

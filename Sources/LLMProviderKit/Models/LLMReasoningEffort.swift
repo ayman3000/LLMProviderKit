@@ -34,6 +34,11 @@ public enum LLMReasoningEffort: String, Sendable, CaseIterable, Codable, Identif
     case xhigh
     /// Maximum capability, no constraint on spending.
     case max
+    /// Above `max`. Real, but narrow: OpenAI's Codex catalog lists it for
+    /// several models on the ChatGPT-subscription surface, while the public API
+    /// documentation for the same model stops at `max`. Declare it only where
+    /// a catalog says so.
+    case ultra
 
     public var id: String { rawValue }
 
@@ -55,6 +60,7 @@ public enum LLMReasoningEffort: String, Sendable, CaseIterable, Codable, Identif
         case .high:    "High"
         case .xhigh:   "Extra high"
         case .max:     "Max"
+        case .ultra:   "Ultra"
         }
     }
 }

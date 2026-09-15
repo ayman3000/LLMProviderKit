@@ -76,8 +76,8 @@ struct EffortVocabularyTests {
 
     /// The ladder's order is load-bearing: clamping is rank arithmetic.
     @Test func theLadderRunsWeakestToStrongest() {
-        #expect(LLMReasoningEffort.ladder == [.off, .minimal, .low, .medium, .high, .xhigh, .max])
-        #expect(LLMReasoningEffort.ladder.map(\.rank) == Array(0..<7))
+        #expect(LLMReasoningEffort.ladder == [.off, .minimal, .low, .medium, .high, .xhigh, .max, .ultra])
+        #expect(LLMReasoningEffort.ladder.map(\.rank) == Array(0..<8))
     }
 }
 
