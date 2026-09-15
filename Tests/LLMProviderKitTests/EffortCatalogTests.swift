@@ -5,6 +5,11 @@ import LLMProviderKit
 /// The catalog is the one place these sets live, and the override file is the
 /// reason a wrong row no longer needs a release. Both halves are pinned here:
 /// that the declared rows are right, and that a bad file cannot break the app.
+/// Serialized: EffortCatalog.shared is a singleton and these cases mutate its
+/// override layer. Run in parallel they clobber each other — which they did,
+/// intermittently, until adding unrelated tests changed the timing enough to
+/// make it show.
+@Suite(.serialized)
 struct EffortCatalogTests {
     private func catalog() -> EffortCatalog {
         let c = EffortCatalog.shared
