@@ -225,18 +225,30 @@ public final class EffortCatalog: @unchecked Sendable {
             ])) { a, _ in a }
         }
 
-        // OpenAI's ChatGPT-subscription surface, from its own Codex catalog
-        // (codex-rs/models-manager/models.json). `ultra` is accepted here and
-        // absent from the public API docs for the same model.
-        let withUltra: [LLMReasoningEffort] = [.low, .medium, .high, .xhigh, .max, .ultra]
+        // OpenAI's ChatGPT-subscription surface. The endpoint states its own
+        // vocabulary in the 400 it returns for anything else:
+        //
+        //   Invalid value: 'ultra'. Supported values are: 'none', 'minimal',
+        //   'low', 'medium', 'high', 'xhigh', and 'max'.
+        //   param: reasoning.effort        (observed live on gpt-5.6-sol, 2026-09-15)
+        //
+        // These rows were first transcribed from OpenAI's own Codex catalog
+        // (codex-rs/models-manager/models.json), which lists `ultra` for five
+        // models and caps gpt-5.5/5.4 at xhigh. The server honoured neither:
+        // `ultra` is refused, and the message names one set for the parameter
+        // rather than one per model. The catalog describes what the Codex CLI
+        // offers — plan tiers included — not what this endpoint accepts.
+        //
+        // A server's own rejection outranks a vendor's catalog. Hermes had it
+        // right ("ultra is the Codex product tier: no wire accepts it") and was
+        // clearly written from the same 400.
+        let codex: [LLMReasoningEffort] = [.off, .minimal, .low, .medium, .high, .xhigh, .max]
         all.merge(rules("chatgptcodex", [
-            ("gpt-6-astra*", withUltra, [:]), ("gpt-5.6-sol*", withUltra, [:]),
-            ("gpt-5.6-terra*", withUltra, [:]),
-            ("gpt-daybreak-blue*", withUltra, [:]), ("gpt-daybreak-red*", withUltra, [:]),
-            ("gpt-5.6-luna*", [.low, .medium, .high, .xhigh, .max], [:]),
-            ("codex-auto-review*", [.low, .medium, .high, .xhigh, .max], [:]),
-            ("gpt-5.5*", [.low, .medium, .high, .xhigh], [:]),
-            ("gpt-5.4*", [.low, .medium, .high, .xhigh], [:]),
+            ("gpt-6-astra*", codex, [:]), ("gpt-5.6-sol*", codex, [:]),
+            ("gpt-5.6-terra*", codex, [:]), ("gpt-5.6-luna*", codex, [:]),
+            ("gpt-daybreak-blue*", codex, [:]), ("gpt-daybreak-red*", codex, [:]),
+            ("codex-auto-review*", codex, [:]),
+            ("gpt-5.5*", codex, [:]), ("gpt-5.4*", codex, [:]),
         ])) { a, _ in a }
 
         return all

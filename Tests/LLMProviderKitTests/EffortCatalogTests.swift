@@ -16,10 +16,11 @@ struct EffortCatalogTests {
         let c = catalog()
         // The same vendor, two surfaces, two answers — the case a per-model or
         // per-provider table could not express.
+        // The endpoint refuses `ultra` — observed live, quoted in the rows.
         #expect(c.vocabulary(provider: "chatgptCodex", model: "gpt-5.6-sol")?
-                .supported.contains(.ultra) == true)
-        #expect(c.vocabulary(provider: "chatgptCodex", model: "gpt-5.6-luna")?
                 .supported.contains(.ultra) == false)
+        #expect(c.vocabulary(provider: "chatgptCodex", model: "gpt-5.6-sol")?.supported
+                == [.off, .minimal, .low, .medium, .high, .xhigh, .max])
         // A model the catalog has never heard of gets nothing at all.
         #expect(c.vocabulary(provider: "chatgptCodex", model: "gpt-4o") == nil)
         #expect(c.vocabulary(provider: "gemini", model: "gemini-3.6-flash") == nil)
