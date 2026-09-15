@@ -38,6 +38,16 @@ public protocol LLMProvider: Sendable {
     /// Parse a non-streaming response body into a finished `LLMResponse`.
     func parseResponse(_ data: Data, request: LLMRequest) throws -> LLMResponse
 
+    /// Which effort levels this provider accepts for `model`, or nil when it
+    /// takes no effort level at all.
+    ///
+    /// Declared per model because a vocabulary belongs to a model *served by
+    /// this endpoint*: the same model reached through a different gateway can
+    /// accept a different set. The default returns nil, so a provider that has
+    /// not been taught about effort silently sends none — the safe direction,
+    /// since an unsupported level is an HTTP 400 on several wires.
+    func effortVocabulary(for model: String) -> LLMEffortVocabulary?
+
     /// Optional: fetch the list of models available from this provider.
     ///
     /// Not every provider exposes a model list endpoint. The default
@@ -56,6 +66,17 @@ public protocol LLMProvider: Sendable {
 
 extension LLMProvider {
     public var urlSession: URLSession { LLMNetworking.session }
+
+    public func effortVocabulary(for model: String) -> LLMEffortVocabulary? { nil }
+
+    /// The level to actually put on the wire for `request`: the caller's ask,
+    /// resolved onto what this model accepts. Providers call this instead of
+    /// reading `request.reasoningEffort` directly, so a level a wire cannot
+    /// express is clamped at the boundary rather than sent and refused.
+    public func wireEffort(for request: LLMRequest) -> LLMReasoningEffort? {
+        guard let vocabulary = effortVocabulary(for: request.model) else { return nil }
+        return vocabulary.clamp(request.reasoningEffort)
+    }
 
     // Default (throwing) implementations of the HTTP-shaped hooks, so a provider
     // that overrides `complete`/`stream` (in-process, no URLRequest) doesn't have

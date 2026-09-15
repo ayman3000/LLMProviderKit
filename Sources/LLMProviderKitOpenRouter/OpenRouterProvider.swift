@@ -43,7 +43,7 @@ public struct OpenRouterProvider: LLMProvider {
     public func prepareRequest(_ request: LLMRequest, stream: Bool) throws -> URLRequest {
         var urlRequest = try inner.prepareRequest(request, stream: stream)
         applyAttribution(to: &urlRequest)
-        try applyReasoningEffort(request.reasoningEffort, to: &urlRequest)
+        try applyReasoningEffort(wireEffort(for: request), to: &urlRequest)
         return urlRequest
     }
 
@@ -61,6 +61,25 @@ public struct OpenRouterProvider: LLMProvider {
         else { return }
         json["reasoning"] = ["effort": effort.rawValue]
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: json, options: [])
+    }
+
+    /// Vendor prefixes whose models take a reasoning parameter. OpenRouter
+    /// advertises this per model in its catalog, but `prepareRequest` has no
+    /// catalog in hand, so this is the cold-cache fallback — the same shape
+    /// Hermes uses for the same reason. Unknown vendors get nothing, which
+    /// keeps an unsupported parameter off the wire.
+    private static let reasoningVendorPrefixes = [
+        "deepseek/", "anthropic/", "openai/", "x-ai/", "google/gemini-2",
+        "google/gemma-4", "qwen/qwen3", "z-ai/", "moonshotai/",
+    ]
+
+    /// OpenRouter publishes the widest OpenAI-compatible vocabulary and
+    /// normalizes per model itself; the gate is only about whether the model
+    /// takes the parameter at all.
+    public func effortVocabulary(for model: String) -> LLMEffortVocabulary? {
+        let id = model.lowercased()
+        guard Self.reasoningVendorPrefixes.contains(where: { id.hasPrefix($0) }) else { return nil }
+        return LLMEffortVocabulary(supported: [.off, .minimal, .low, .medium, .high, .xhigh, .max])
     }
 
     public func parseStreamLine(_ line: String, request: LLMRequest) throws -> [LLMStreamChunk] {

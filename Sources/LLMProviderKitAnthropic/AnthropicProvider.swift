@@ -158,7 +158,7 @@ public struct AnthropicProvider: LLMProvider {
         // Callers should also hold a level steady for the life of a cached
         // conversation: the value is rendered into the prompt, so changing it
         // between requests invalidates the cache breakpoints this provider sets.
-        if let effort = request.reasoningEffort {
+        if let effort = wireEffort(for: request) {
             bodyDict["output_config"] = ["effort": effort.rawValue]
         }
 
@@ -579,6 +579,15 @@ extension AnthropicProvider {
     /// Whether this model accepts `LLMRequest.reasoningEffort`.
     public static func acceptsReasoningEffort(_ modelID: String) -> Bool {
         effortCapableModelPrefixes.contains { modelID.hasPrefix($0) }
+    }
+
+    /// Anthropic's five levels, uniform across every model that takes one
+    /// (docs read 2026-09-15). `high` is the API default and is identical to
+    /// omitting the field. `none` and `minimal` are not Anthropic levels, so a
+    /// request for either clamps up to `low` — the weakest it can express.
+    public func effortVocabulary(for model: String) -> LLMEffortVocabulary? {
+        guard Self.acceptsReasoningEffort(model) else { return nil }
+        return LLMEffortVocabulary(supported: [.low, .medium, .high, .xhigh, .max])
     }
 
     /// One rule for curated and live entries alike, so the two cannot drift.
