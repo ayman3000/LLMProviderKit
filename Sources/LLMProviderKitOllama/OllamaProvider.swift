@@ -19,6 +19,12 @@ public struct OllamaProvider: LLMProvider {
         self.configuration = configuration
     }
 
+    /// Native `/api/chat`. See `OllamaEffort` for what each family accepts and
+    /// why an unrecognised model is sent no level at all.
+    public func effortVocabulary(for model: String) -> LLMEffortVocabulary? {
+        OllamaEffort.vocabulary(for: model, cloud: false)
+    }
+
     public func prepareRequest(_ request: LLMRequest, stream: Bool) throws -> URLRequest {
         let url = configuration.baseURL
             .appendingPathComponent("api")
@@ -95,6 +101,15 @@ public struct OllamaProvider: LLMProvider {
         // concurrency that becomes a self-perpetuating load storm. Holding the
         // model warm for a few minutes eliminates the thrash at the source.
         bodyDict["keep_alive"] = Self.keepAlive
+
+        // Thinking level. Native /api/chat takes this as a TOP-LEVEL `think`
+        // field — not an `options` entry — and accepts a level string as well
+        // as a boolean. Sent only for a model with a declared vocabulary, and
+        // clamped onto what that model accepts, so an unsupported level is
+        // corrected here rather than refused by the server.
+        if let effort = wireEffort(for: request) {
+            bodyDict["think"] = effort.rawValue
+        }
 
         let bodyData = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
         urlRequest.httpBody = bodyData

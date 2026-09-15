@@ -80,3 +80,77 @@ struct EffortVocabularyTests {
         #expect(LLMReasoningEffort.ladder.map(\.rank) == Array(0..<7))
     }
 }
+
+import LLMProviderKitOllama
+
+/// Ollama's declared families. These are the sets a wrong entry turns into a
+/// 400, so each is pinned rather than trusted.
+struct OllamaEffortTests {
+    @Test func glmVersionsDifferAndBothAreDeclared() {
+        // 5.2's knob starts at its minimum thinking level; 5.3 is graded.
+        #expect(OllamaEffort.vocabulary(for: "glm-5.2:cloud", cloud: true)?.supported == [.high, .max])
+        #expect(OllamaEffort.vocabulary(for: "glm-5.3", cloud: false)?.supported
+                == [.low, .medium, .high, .max])
+    }
+
+    /// The level the app defaults to must land somewhere valid on the model
+    /// actually in use — this is the case the old boolean gate would have sent
+    /// straight through.
+    @Test func mediumResolvesOnAModelWithoutIt() {
+        let glm52 = try! #require(OllamaEffort.vocabulary(for: "glm-5.2:cloud", cloud: true))
+        #expect(glm52.supported.contains(.medium) == false)
+        #expect(glm52.clamp(.medium) == .high)   // the floor, not a refusal
+    }
+
+    @Test func kimiK3IsMatchedAsADelimitedToken() {
+        for id in ["k3", "k3-256k", "kimi-k3-cot"] {
+            #expect(OllamaEffort.vocabulary(for: id, cloud: true)?.supported == [.low, .high, .max],
+                    "\(id) should be K3")
+        }
+        // K2-era names must not match the K3 token.
+        #expect(OllamaEffort.vocabulary(for: "kimi-k2.6", cloud: true)?.supported
+                == [.low, .medium, .high])
+    }
+
+    /// K3's `high` is its middle AND its server default, so ladder arithmetic
+    /// (which would pick `low`) is wrong and the override is right.
+    @Test func kimiK3MapsMediumUpwardByVendorRule() {
+        let k3 = try! #require(OllamaEffort.vocabulary(for: "k3", cloud: true))
+        #expect(k3.clamp(.medium) == .high)
+    }
+
+    @Test func minimalNeverReachesOllamaCloud() {
+        // The cloud wire answers 400 for `minimal`; it must be clamped away.
+        let cloud = try! #require(OllamaEffort.vocabulary(for: "glm-5.3", cloud: true))
+        #expect(cloud.supported.contains(.minimal) == false)
+        #expect(cloud.clamp(.minimal) == .low)
+    }
+
+    @Test func unknownModelsAreSentNoLevel() {
+        for id in ["llama3.2", "mistral-small", "something-new"] {
+            #expect(OllamaEffort.vocabulary(for: id, cloud: false) == nil, "\(id) must be undeclared")
+        }
+    }
+
+    @Test func thinkIsATopLevelStringNotAnOption() throws {
+        let provider = OllamaProvider(configuration: OllamaProvider.local(
+            model: "glm-5.3", baseURL: URL(string: "http://localhost:11434")!))
+        let request = LLMRequest(model: "glm-5.3",
+                                 messages: [LLMMessage(role: .user, content: "hi")],
+                                 reasoningEffort: .low)
+        let data = try #require(provider.prepareRequest(request, stream: false).httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(body["think"] as? String == "low")
+        #expect((body["options"] as? [String: Any])?["think"] == nil)
+    }
+
+    @Test func noEffortSendsNoThink() throws {
+        let provider = OllamaProvider(configuration: OllamaProvider.local(
+            model: "glm-5.3", baseURL: URL(string: "http://localhost:11434")!))
+        let request = LLMRequest(model: "glm-5.3",
+                                 messages: [LLMMessage(role: .user, content: "hi")])
+        let data = try #require(provider.prepareRequest(request, stream: false).httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(body["think"] == nil)
+    }
+}
