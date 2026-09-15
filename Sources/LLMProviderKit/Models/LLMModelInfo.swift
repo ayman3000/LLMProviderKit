@@ -17,6 +17,11 @@ public struct LLMModelCapability: RawRepresentable, Sendable, Hashable, Codable 
     public static let textGeneration = LLMModelCapability(rawValue: "text_generation")
     /// Reasoning/thinking modes.
     public static let reasoning = LLMModelCapability(rawValue: "reasoning")
+    /// The model accepts an explicit effort level on the request
+    /// (`LLMRequest.reasoningEffort`). Distinct from `reasoning`: a model can
+    /// reason without letting a caller dial how hard, and — because effort
+    /// shapes every output token — can accept a level without reasoning at all.
+    public static let reasoningEffort = LLMModelCapability(rawValue: "reasoning_effort")
     /// Image understanding.
     public static let vision = LLMModelCapability(rawValue: "vision")
     /// Image input in multimodal prompts.

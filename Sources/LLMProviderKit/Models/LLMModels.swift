@@ -89,6 +89,12 @@ public struct LLMRequest: Sendable {
     public var maxTokens: Int?
     public var topP: Double?
     public var tools: [LLMToolDefinition]
+    /// How much work the model should spend on this response. `nil` sends
+    /// nothing, which is what every provider did before this existed — the
+    /// provider's own default applies. Only send a level to a model whose
+    /// catalog entry carries `LLMModelCapability.reasoningEffort`: at least
+    /// one provider answers an unsupported level with HTTP 400.
+    public var reasoningEffort: LLMReasoningEffort?
     public var id: UUID
 
     public init(
@@ -98,6 +104,7 @@ public struct LLMRequest: Sendable {
         maxTokens: Int? = nil,
         topP: Double? = nil,
         tools: [LLMToolDefinition] = [],
+        reasoningEffort: LLMReasoningEffort? = nil,
         id: UUID = UUID()
     ) {
         self.model = model
@@ -106,6 +113,7 @@ public struct LLMRequest: Sendable {
         self.maxTokens = maxTokens
         self.topP = topP
         self.tools = tools
+        self.reasoningEffort = reasoningEffort
         self.id = id
     }
 }

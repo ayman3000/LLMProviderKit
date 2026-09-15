@@ -143,6 +143,25 @@ public struct AnthropicProvider: LLMProvider {
         if let temp = request.temperature { bodyDict["temperature"] = temp }
         if let topP = request.topP { bodyDict["top_p"] = topP }
 
+        // Effort. Anthropic's modern control over how much work a response is
+        // worth, replacing `thinking: {type:"enabled", budget_tokens:}` — which
+        // is deprecated on the 4.6 generation and answered with HTTP 400 by 4.7
+        // and later. Effort shapes every output token, so it applies whether or
+        // not the model thinks, and lower levels also make tool calls fewer and
+        // terser.
+        //
+        // Only sent when the caller asks: nil leaves the body exactly as it was
+        // before this existed, and the provider's own default (high) applies.
+        // Sending a level to a model that does not accept one is a 400, so the
+        // caller gates on LLMModelCapability.reasoningEffort.
+        //
+        // Callers should also hold a level steady for the life of a cached
+        // conversation: the value is rendered into the prompt, so changing it
+        // between requests invalidates the cache breakpoints this provider sets.
+        if let effort = request.reasoningEffort {
+            bodyDict["output_config"] = ["effort": effort.rawValue]
+        }
+
         // Tools (Anthropic format: name, description, input_schema). The last
         // tool carries a breakpoint so the (large, static) tool block caches
         // even when system/messages change.
