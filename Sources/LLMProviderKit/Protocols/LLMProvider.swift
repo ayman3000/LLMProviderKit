@@ -144,7 +144,15 @@ extension LLMProvider {
                     let model = try await self.resolvedModel(for: request)
                     var resolvedRequest = request
                     resolvedRequest.model = model
-                    let urlRequest = try self.prepareRequest(resolvedRequest, stream: true)
+                    var urlRequest = try self.prepareRequest(resolvedRequest, stream: true)
+                    // Stalled-stream watchdog (off unless request.stallTimeout is set).
+                    // The connection's own idle timeout must not fire first:
+                    // the watchdog is the policy, the idle timeout a backstop.
+                    if let limit = resolvedRequest.stallTimeout {
+                        urlRequest.timeoutInterval = max(urlRequest.timeoutInterval, limit + 30)
+                    }
+                    let clock = LLMProgressClock()
+                    try await LLMStreamWatchdog.run(limit: resolvedRequest.stallTimeout, clock: clock) {
                     let (bytes, response) = try await self.urlSession.bytes(for: urlRequest)
                     // A failing stream still has a body, and it is the only
                     // thing that says WHY. Passing nil here left every provider
@@ -164,6 +172,7 @@ extension LLMProvider {
                                 guard let line = String(data: pendingLineBytes, encoding: .utf8) else {
                                     throw LLMError.invalidResponse("Streaming response contained a non-UTF-8 line.")
                                 }
+                                if !LLMStreamWatchdog.isKeepAlive(line) { clock.touch() }
                                 let chunks = try self.parseStreamLine(line, request: resolvedRequest)
                                 for chunk in chunks.flatMap({ assembler.consume($0) }) {
                                     continuation.yield(chunk)
@@ -185,8 +194,12 @@ extension LLMProvider {
                         for chunk in chunks.flatMap({ assembler.consume($0) }) { continuation.yield(chunk) }
                     }
                     for chunk in assembler.flush() { continuation.yield(chunk) }
+                    }
 
                     continuation.finish()
+                } catch let error as URLError where error.code == .timedOut && request.stallTimeout != nil {
+                    // A silent connection is a stall too: one treatment either way.
+                    continuation.yield(with: .failure(LLMStreamStalled(seconds: request.stallTimeout ?? 0)))
                 } catch {
                     continuation.yield(with: .failure(error))
                 }
