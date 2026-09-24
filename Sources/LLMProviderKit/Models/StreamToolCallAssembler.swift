@@ -10,9 +10,14 @@ import Foundation
 ///
 /// Passed on raw, a nameless fragment reads as "tool use with no usable call",
 /// and an agent then asks the model the whole question again. The assembler
-/// holds fragments and releases whole calls, in index order, just before the
+/// holds fragments and releases whole calls, in arrival order, just before the
 /// stream's `.finish`. Calls without an index are already whole and pass
 /// straight through, as does every other chunk.
+///
+/// Some Ollama-compatible endpoints number every call in a parallel batch 0 and
+/// tell them apart only by id, so a NEW id at an index already in use opens a
+/// new call. A fragment with no id (the norm after the first piece) extends the
+/// newest call at its index.
 public struct StreamToolCallAssembler: Sendable {
     /// The `providerMetadata` key a provider sets on a fragment.
     public static let indexKey = "streamToolCallIndex"
@@ -24,7 +29,9 @@ public struct StreamToolCallAssembler: Sendable {
         var metadata: [String: String]
     }
 
-    private var pending: [Int: Pending] = [:]
+    /// Calls in arrival order; `slotForIndex` points each wire index at its newest call.
+    private var slots: [Pending] = []
+    private var slotForIndex: [Int: Int] = [:]
 
     public init() {}
 
@@ -35,14 +42,15 @@ public struct StreamToolCallAssembler: Sendable {
             guard let raw = call.providerMetadata[Self.indexKey], let index = Int(raw) else {
                 return [chunk]
             }
-            if var existing = pending[index] {
-                if existing.name.isEmpty { existing.name = call.name }
-                existing.arguments += call.arguments
-                pending[index] = existing
+            if let slot = slotForIndex[index], call.id.isEmpty || call.id == slots[slot].id || slots[slot].id.isEmpty {
+                if slots[slot].id.isEmpty { slots[slot].id = call.id }
+                if slots[slot].name.isEmpty { slots[slot].name = call.name }
+                slots[slot].arguments += call.arguments
             } else {
                 var metadata = call.providerMetadata
                 metadata[Self.indexKey] = nil
-                pending[index] = Pending(id: call.id, name: call.name, arguments: call.arguments, metadata: metadata)
+                slots.append(Pending(id: call.id, name: call.name, arguments: call.arguments, metadata: metadata))
+                slotForIndex[index] = slots.count - 1
             }
             return []
         case .finish:
@@ -54,14 +62,15 @@ public struct StreamToolCallAssembler: Sendable {
 
     /// Release every held call. Call at the end of a stream that never sent `.finish`.
     public mutating func flush() -> [LLMStreamChunk] {
-        let calls = pending.keys.sorted().compactMap { pending[$0] }.map { p in
+        let calls = slots.map { p in
             LLMStreamChunk.toolCall(LLMToolCall(
-                id: p.id,
+                id: p.id.isEmpty ? UUID().uuidString : p.id,
                 name: p.name,
                 arguments: p.arguments.isEmpty ? "{}" : p.arguments,
                 providerMetadata: p.metadata))
         }
-        pending.removeAll()
+        slots.removeAll()
+        slotForIndex.removeAll()
         return calls
     }
 }

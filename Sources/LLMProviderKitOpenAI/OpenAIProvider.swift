@@ -128,8 +128,10 @@ public struct OpenAIProvider: LLMProvider {
             for tc in toolCalls {
                 var metadata: [String: String] = [:]
                 if let index = tc.index { metadata[StreamToolCallAssembler.indexKey] = String(index) }
+                // A fragment without an id continues the current call: keep it
+                // empty so the assembler doesn't read a fresh id as a new call.
                 chunks.append(.toolCall(LLMToolCall(
-                    id: tc.id ?? UUID().uuidString,
+                    id: tc.id ?? (tc.index == nil ? UUID().uuidString : ""),
                     name: tc.function?.name ?? "",
                     arguments: tc.function?.arguments ?? (tc.index == nil ? "{}" : ""),
                     providerMetadata: metadata

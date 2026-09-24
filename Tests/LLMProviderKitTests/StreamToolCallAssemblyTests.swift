@@ -33,8 +33,8 @@ struct StreamToolCallAssemblyTests {
         out += a.consume(.text("Checking."))
         out += a.consume(.toolCall(LLMToolCall(id: "call_a", name: "get_weather", arguments: #"{"ci"#, providerMetadata: [k: "0"])))
         out += a.consume(.toolCall(LLMToolCall(id: "call_b", name: "get_time", arguments: "", providerMetadata: [k: "1"])))
-        out += a.consume(.toolCall(LLMToolCall(id: "x1", name: "", arguments: #"ty":"Cairo"}"#, providerMetadata: [k: "0"])))
-        out += a.consume(.toolCall(LLMToolCall(id: "x2", name: "", arguments: "{}", providerMetadata: [k: "1"])))
+        out += a.consume(.toolCall(LLMToolCall(id: "", name: "", arguments: #"ty":"Cairo"}"#, providerMetadata: [k: "0"])))
+        out += a.consume(.toolCall(LLMToolCall(id: "", name: "", arguments: "{}", providerMetadata: [k: "1"])))
         out += a.consume(.finish(reason: .toolCalls, usage: nil))
 
         let whole = calls(out)
@@ -58,7 +58,7 @@ struct StreamToolCallAssemblyTests {
         var a = StreamToolCallAssembler()
         let k = StreamToolCallAssembler.indexKey
         _ = a.consume(.toolCall(LLMToolCall(id: "call_a", name: "ls", arguments: "{", providerMetadata: [k: "0"])))
-        _ = a.consume(.toolCall(LLMToolCall(id: "y", name: "", arguments: "}", providerMetadata: [k: "0"])))
+        _ = a.consume(.toolCall(LLMToolCall(id: "", name: "", arguments: "}", providerMetadata: [k: "0"])))
         let flushed = calls(a.flush())
         #expect(flushed.count == 1 && flushed[0].name == "ls" && flushed[0].arguments == "{}")
     }
@@ -141,5 +141,56 @@ struct StreamLoopToolCallAssemblyTests {
         #expect(calls.first?.id == "call_1")
         #expect(calls.first?.name == "get_weather")
         #expect(calls.first?.arguments == #"{"city":"Cairo"}"#)
+    }
+}
+
+// MARK: - Index reuse (Hermes' Ollama finding)
+
+/// Some Ollama-compatible endpoints number every call in a parallel batch 0
+/// and tell them apart only by id. A new id at an index already in use is a
+/// NEW call, not more of the old one.
+struct StreamToolCallIndexReuseTests {
+    private func calls(_ chunks: [LLMStreamChunk]) -> [LLMToolCall] {
+        chunks.compactMap { if case .toolCall(let c) = $0 { return c } else { return nil } }
+    }
+
+    @Test func aNewIdAtAReusedIndexStartsANewCall() {
+        var a = StreamToolCallAssembler()
+        let k = StreamToolCallAssembler.indexKey
+        _ = a.consume(.toolCall(LLMToolCall(id: "call_1", name: "get_weather", arguments: #"{"city":"Cairo"}"#, providerMetadata: [k: "0"])))
+        _ = a.consume(.toolCall(LLMToolCall(id: "call_2", name: "get_weather", arguments: #"{"city":"Berlin"}"#, providerMetadata: [k: "0"])))
+        let whole = calls(a.consume(.finish(reason: .toolCalls, usage: nil)))
+        #expect(whole.map(\.id) == ["call_1", "call_2"])
+        #expect(whole.map(\.arguments) == [#"{"city":"Cairo"}"#, #"{"city":"Berlin"}"#])
+    }
+
+    @Test func aContinuationFragmentFromTheOpenAIParserHasNoId() throws {
+        let provider = OpenAIProvider(configuration: OpenAIProvider.openAI(apiKey: "k", model: "x"))
+        let chunks = try provider.parseStreamLine(
+            #"data: {"id":"c","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]}}]}"#,
+            request: LLMRequest(model: "x", messages: [.user("Hi")]))
+        #expect(calls(chunks).first?.id == "")
+    }
+
+    /// MiniMax resends the full name on every chunk (Hermes' note): one call, name once.
+    @Test func aResentNameIsNotRepeated() {
+        var a = StreamToolCallAssembler()
+        let k = StreamToolCallAssembler.indexKey
+        _ = a.consume(.toolCall(LLMToolCall(id: "call_1", name: "get_weather", arguments: #"{"city""#, providerMetadata: [k: "0"])))
+        _ = a.consume(.toolCall(LLMToolCall(id: "call_1", name: "get_weather", arguments: #":"Cairo"}"#, providerMetadata: [k: "0"])))
+        let whole = calls(a.flush())
+        #expect(whole.count == 1 && whole[0].name == "get_weather" && whole[0].arguments == #"{"city":"Cairo"}"#)
+    }
+
+    @Test func fragmentsAfterAReusedIndexExtendTheNewestCall() {
+        var a = StreamToolCallAssembler()
+        let k = StreamToolCallAssembler.indexKey
+        _ = a.consume(.toolCall(LLMToolCall(id: "call_1", name: "a", arguments: "{", providerMetadata: [k: "0"])))
+        _ = a.consume(.toolCall(LLMToolCall(id: "call_1", name: "", arguments: "}", providerMetadata: [k: "0"])))
+        _ = a.consume(.toolCall(LLMToolCall(id: "call_2", name: "b", arguments: "{", providerMetadata: [k: "0"])))
+        _ = a.consume(.toolCall(LLMToolCall(id: "", name: "", arguments: "}", providerMetadata: [k: "0"])))
+        let whole = calls(a.flush())
+        #expect(whole.map(\.name) == ["a", "b"])
+        #expect(whole.map(\.arguments) == ["{}", "{}"])
     }
 }
