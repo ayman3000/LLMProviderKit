@@ -123,11 +123,16 @@ public struct OpenAIProvider: LLMProvider {
         }
 
         if let toolCalls = decoded.choices.first?.delta?.toolCalls, !toolCalls.isEmpty {
+            // Each delta is a FRAGMENT of the call at `index`; the stream loop
+            // joins them (StreamToolCallAssembler) before anyone sees them.
             for tc in toolCalls {
+                var metadata: [String: String] = [:]
+                if let index = tc.index { metadata[StreamToolCallAssembler.indexKey] = String(index) }
                 chunks.append(.toolCall(LLMToolCall(
                     id: tc.id ?? UUID().uuidString,
                     name: tc.function?.name ?? "",
-                    arguments: tc.function?.arguments ?? "{}"
+                    arguments: tc.function?.arguments ?? (tc.index == nil ? "{}" : ""),
+                    providerMetadata: metadata
                 )))
             }
         }
@@ -270,6 +275,8 @@ private struct OpenAIChatResponse: Decodable {
 }
 
 private struct OpenAIToolCall: Decodable {
+    /// Which call a streamed fragment belongs to (absent in whole responses).
+    let index: Int?
     let id: String?
     let function: OpenAIToolCallFunction?
 }
