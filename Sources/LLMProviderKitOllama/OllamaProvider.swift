@@ -168,15 +168,15 @@ public struct OllamaProvider: LLMProvider {
             chunks.append(.text(text))
         }
 
-        // Parse tool calls from stream chunks (same format as non-streaming).
-        // Ollama streams incremental JSON objects; when tool_calls are present
-        // we surface them via the finish chunk's reason so consumers know to
-        // collect them from the final non-streaming response, matching the
-        // pattern used by the OpenAI provider's streaming path.
-        if let toolCalls = decoded.message?.toolCalls, !toolCalls.isEmpty, decoded.done != true {
-            // Tool calls appeared mid-stream; mark the finish reason accordingly.
-            // The full tool call details are carried in the final accumulated response.
-            chunks.append(.finish(reason: .toolCalls, usage: nil))
+        // Ollama streams each tool call whole (id, name, arguments) in one
+        // chunk. Deliver them: a stream that only flags tool use makes the
+        // agent ask the model the same question again, non-streaming — every
+        // tool step generated twice.
+        if let toolCalls = decoded.message?.toolCalls, !toolCalls.isEmpty {
+            chunks.append(contentsOf: Self.llmToolCalls(toolCalls).map { .toolCall($0) })
+            if decoded.done != true {
+                chunks.append(.finish(reason: .toolCalls, usage: nil))
+            }
         }
 
         if decoded.done == true {
@@ -189,6 +189,18 @@ public struct OllamaProvider: LLMProvider {
         }
 
         return chunks
+    }
+
+    /// Ollama's wire tool calls as provider-neutral ones (shared by the
+    /// streaming and non-streaming paths).
+    private static func llmToolCalls(_ calls: [OllamaToolCall]) -> [LLMToolCall] {
+        calls.map { tc in
+            LLMToolCall(
+                id: tc.id ?? UUID().uuidString,
+                name: tc.function?.name ?? "",
+                arguments: tc.function?.arguments ?? "{}"
+            )
+        }
     }
 
     public func parseResponse(_ data: Data, request: LLMRequest) throws -> LLMResponse {
@@ -224,13 +236,7 @@ public struct OllamaProvider: LLMProvider {
         let text = message.content ?? ""
 
         // Parse native tool calls from the response
-        let toolCalls: [LLMToolCall] = message.toolCalls?.map { tc in
-            LLMToolCall(
-                id: tc.id ?? UUID().uuidString,
-                name: tc.function?.name ?? "",
-                arguments: tc.function?.arguments ?? "{}"
-            )
-        } ?? []
+        let toolCalls = Self.llmToolCalls(message.toolCalls ?? [])
 
         let usage = LLMUsage(
             promptTokens: decoded.promptEvalCount,

@@ -123,6 +123,25 @@ struct ProviderTests {
         #expect(chunksEqual(chunks[0], .reasoning("Let me check")))
     }
 
+    /// Ollama streams each tool call whole, in one mid-stream chunk (verified
+    /// live against glm-5.2:cloud). The stream must deliver it, or the agent
+    /// sees "tools were used" with no calls and asks the model a second time.
+    @Test func ollamaStreamingToolCallChunkCarriesTheCall() async throws {
+        let provider = OllamaProvider(configuration: OllamaProvider.local(model: "glm-5.2:cloud"))
+        let line = #"{"model":"glm-5.2:cloud","message":{"role":"assistant","content":"","tool_calls":[{"id":"call_wdj4lh5a","function":{"index":0,"name":"get_weather","arguments":{"city":"Cairo"}}}]},"done":false}"#
+        let request = LLMRequest(model: "glm-5.2:cloud", messages: [.user("Weather in Cairo?")])
+        let chunks = try provider.parseStreamLine(line, request: request)
+
+        let calls = chunks.compactMap { chunk -> LLMToolCall? in
+            if case .toolCall(let call) = chunk { return call }
+            return nil
+        }
+        #expect(calls.count == 1)
+        #expect(calls.first?.id == "call_wdj4lh5a")
+        #expect(calls.first?.name == "get_weather")
+        #expect(calls.first.map { $0.arguments.contains("\"city\"") && $0.arguments.contains("Cairo") } == true)
+    }
+
     @Test func openAIStreamingReasoningDeltas() async throws {
         let provider = OpenAIProvider(configuration: OpenAIProvider.openAI(apiKey: "test", model: "x"))
         let request = LLMRequest(model: "x", messages: [.user("Hi")])
