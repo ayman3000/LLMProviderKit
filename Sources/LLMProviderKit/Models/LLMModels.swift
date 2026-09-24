@@ -96,6 +96,10 @@ public struct LLMRequest: Sendable {
     /// one provider answers an unsupported level with HTTP 400.
     public var reasoningEffort: LLMReasoningEffort?
     public var id: UUID
+    /// Give up on a streamed response after this many seconds without
+    /// progress (any real event from the model; keep-alives don't count), by
+    /// throwing `LLMStreamStalled`. nil = no watchdog.
+    public var stallTimeout: TimeInterval? = nil
 
     public init(
         model: String,
