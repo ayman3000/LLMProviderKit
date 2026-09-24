@@ -153,6 +153,9 @@ extension LLMProvider {
                     // itself in the response the byte stream still held.
                     try await Self.verifyStreamingResponse(response, bytes: bytes)
 
+                    // Fragmented tool calls (OpenAI-style wires) are joined
+                    // here, so every consumer sees whole calls.
+                    var assembler = StreamToolCallAssembler()
                     var pendingLineBytes = Data()
                     for try await byte in bytes {
                         if byte == 0x0A { // newline
@@ -162,7 +165,7 @@ extension LLMProvider {
                                     throw LLMError.invalidResponse("Streaming response contained a non-UTF-8 line.")
                                 }
                                 let chunks = try self.parseStreamLine(line, request: resolvedRequest)
-                                for chunk in chunks {
+                                for chunk in chunks.flatMap({ assembler.consume($0) }) {
                                     continuation.yield(chunk)
                                     if case .finish = chunk { break }
                                 }
@@ -179,8 +182,9 @@ extension LLMProvider {
                             throw LLMError.invalidResponse("Streaming response contained a non-UTF-8 line.")
                         }
                         let chunks = try self.parseStreamLine(line, request: resolvedRequest)
-                        for chunk in chunks { continuation.yield(chunk) }
+                        for chunk in chunks.flatMap({ assembler.consume($0) }) { continuation.yield(chunk) }
                     }
+                    for chunk in assembler.flush() { continuation.yield(chunk) }
 
                     continuation.finish()
                 } catch {
