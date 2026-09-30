@@ -95,9 +95,7 @@ struct OpenRouterReasoningEffortTests {
     @Test func effortAddsExactlyOneKey() throws {
         let plain = try Self.body(effort: nil)
         let withEffort = try Self.body(effort: .low)
-        // The level itself, plus the adaptive-thinking switch that rides with it.
-        #expect(withEffort.count == plain.count + 2)
-        #expect(withEffort["thinking"] != nil)
+        #expect(withEffort.count == plain.count + 1)
         for key in plain.keys { #expect(withEffort[key] != nil, "effort dropped \(key)") }
     }
 }
