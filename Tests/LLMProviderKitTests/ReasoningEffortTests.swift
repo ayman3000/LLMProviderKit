@@ -55,7 +55,9 @@ struct ReasoningEffortTests {
         for key in plain.keys {
             #expect(withEffort[key] != nil, "effort dropped \(key) from the body")
         }
-        #expect(withEffort.count == plain.count + 1)
+        // The level itself, plus the adaptive-thinking switch that rides with it.
+        #expect(withEffort.count == plain.count + 2)
+        #expect(withEffort["thinking"] != nil)
     }
 }
 
@@ -93,7 +95,9 @@ struct OpenRouterReasoningEffortTests {
     @Test func effortAddsExactlyOneKey() throws {
         let plain = try Self.body(effort: nil)
         let withEffort = try Self.body(effort: .low)
-        #expect(withEffort.count == plain.count + 1)
+        // The level itself, plus the adaptive-thinking switch that rides with it.
+        #expect(withEffort.count == plain.count + 2)
+        #expect(withEffort["thinking"] != nil)
         for key in plain.keys { #expect(withEffort[key] != nil, "effort dropped \(key)") }
     }
 }
