@@ -15,6 +15,23 @@ public struct OpenAIProvider: LLMProvider {
         self.configuration = configuration
     }
 
+    /// Talking to OpenAI itself, not an OpenAI-compatible service.
+    var isOpenAI: Bool { configuration.baseURL.host?.lowercased().hasSuffix("api.openai.com") == true }
+
+    /// OpenAI's reasoning families: GPT-5 and later, and the o-series.
+    static func isReasoningModel(_ id: String) -> Bool {
+        let m = id.lowercased()
+        return ["gpt-5", "gpt-6", "gpt-7", "o1", "o3", "o4"].contains { m.hasPrefix($0) }
+    }
+
+    /// none/low/medium/high/xhigh accepted; `minimal` rejected (checked live
+    /// on gpt-5.6-luna and gpt-6-sol, 2026-09-29).
+    public func effortVocabulary(for model: String) -> LLMEffortVocabulary? {
+        guard isOpenAI, Self.isReasoningModel(model) else { return nil }
+        return LLMEffortVocabulary(supported: [.off, .low, .medium, .high, .xhigh],
+                                   overrides: [.minimal: .low, .max: .xhigh])
+    }
+
     public func prepareRequest(_ request: LLMRequest, stream: Bool) throws -> URLRequest {
         let url = configuration.baseURL
             .appendingPathComponent("chat")
@@ -73,9 +90,15 @@ public struct OpenAIProvider: LLMProvider {
         // usage and the caller has to estimate tokens — and therefore cost.
         if stream { bodyDict["stream_options"] = ["include_usage": true] }
 
-        if let temp = request.temperature { bodyDict["temperature"] = temp }
-        if let topP = request.topP { bodyDict["top_p"] = topP }
-        if let maxTokens = request.maxTokens { bodyDict["max_tokens"] = maxTokens }
+        // OpenAI itself: reasoning models (gpt-5*, gpt-6*, o-series) reject
+        // `max_tokens` and any temperature but the default; every OpenAI model
+        // takes `max_completion_tokens`. Compatible services keep the old
+        // shape (checked live against gpt-5.6-luna, 2026-09-29).
+        let reasoningModel = isOpenAI && Self.isReasoningModel(request.model)
+        if let temp = request.temperature, !reasoningModel { bodyDict["temperature"] = temp }
+        if let topP = request.topP, !reasoningModel { bodyDict["top_p"] = topP }
+        if let maxTokens = request.maxTokens { bodyDict[isOpenAI ? "max_completion_tokens" : "max_tokens"] = maxTokens }
+        if reasoningModel, let effort = request.reasoningEffort { bodyDict["reasoning_effort"] = effort.rawValue }
 
         // Add tools if any
         if !request.tools.isEmpty {
