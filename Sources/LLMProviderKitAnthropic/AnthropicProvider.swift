@@ -165,6 +165,12 @@ public struct AnthropicProvider: LLMProvider {
         // between requests invalidates the cache breakpoints this provider sets.
         if let effort = wireEffort(for: request) {
             bodyDict["output_config"] = ["effort": effort.rawValue]
+            // Effort alone shapes the output; the model reasons only when
+            // asked. Adaptive thinking lets it decide how much, within the
+            // effort. Checked live on claude-sonnet-4-6 (2026-10-01): the
+            // reply carries a signed thinking block, and the following turn
+            // is accepted without that block replayed, so nothing is stored.
+            bodyDict["thinking"] = ["type": "adaptive"]
         }
 
         // Tools (Anthropic format: name, description, input_schema). The last

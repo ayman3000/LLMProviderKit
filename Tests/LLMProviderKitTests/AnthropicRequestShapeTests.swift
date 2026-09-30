@@ -55,4 +55,29 @@ struct AnthropicRequestShapeTests {
         // An explicit limit still wins.
         #expect(try body([LLMMessage(role: .user, content: "hi")], maxTokens: 500)["max_tokens"] as? Int == 500)
     }
+
+    /// Checked live (2026-10-01): `thinking: {type: adaptive}` with
+    /// `output_config.effort` is accepted, the reply carries a signed thinking
+    /// block, and the next turn is accepted with that block left out.
+    @Test func modelsThatTakeAnEffortAlsoGetAdaptiveThinking() throws {
+        var r = LLMRequest(model: "claude-sonnet-4-6", messages: [LLMMessage(role: .user, content: "hi")])
+        r.reasoningEffort = .low
+        let provider = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "k", model: "claude-sonnet-4-6"))
+        let data = try #require(provider.prepareRequest(r, stream: false).httpBody)
+        let b = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect((b["thinking"] as? [String: Any])?["type"] as? String == "adaptive")
+        #expect((b["output_config"] as? [String: Any])?["effort"] as? String == "low")
+    }
+
+    @Test func noEffortMeansNoThinkingField() throws {
+        let b = try body([LLMMessage(role: .user, content: "hi")], model: "claude-sonnet-4-6")
+        #expect(b["thinking"] == nil)
+        // An older model that takes no effort level never gets the field either.
+        var r = LLMRequest(model: "claude-3-5-sonnet-20241022", messages: [LLMMessage(role: .user, content: "hi")])
+        r.reasoningEffort = .high
+        let provider = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "k", model: "claude-3-5-sonnet-20241022"))
+        let data = try #require(provider.prepareRequest(r, stream: false).httpBody)
+        let old = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(old["thinking"] == nil)
+    }
 }
