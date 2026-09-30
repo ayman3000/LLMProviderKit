@@ -35,7 +35,9 @@ public struct AnthropicProvider: LLMProvider {
         urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         urlRequest.setValue("LLMProviderKit/1.0", forHTTPHeaderField: "User-Agent")
 
-        let maxTokens = request.maxTokens ?? 4096
+        // `max_tokens` is required. Unset, it follows the model: 4,096 cut
+        // long file edits short (a fix can run to several thousand tokens).
+        let maxTokens = request.maxTokens ?? Self.defaultMaxTokens(for: request.model)
 
         // Build body as a dictionary (handles [String: Any] tool parameters natively)
         var bodyDict: [String: Any] = [
@@ -134,7 +136,10 @@ public struct AnthropicProvider: LLMProvider {
         // provider's minimum prefix size the marker is simply ignored.
         // Observed 2026-09-06: without this, cache_read_input_tokens was
         // never reported for any Naseem call.
-        bodyDict["messages"] = Self.markingLastBlockForCache(messages)
+        // Every tool_result for one assistant turn's tool_use blocks must sit
+        // in ONE user message right after it; parallel tool calls used to
+        // arrive as one user message each, which the API refuses.
+        bodyDict["messages"] = Self.markingLastBlockForCache(Self.mergingToolResults(messages))
 
         if let sys = systemText {
             bodyDict["system"] = [["type": "text", "text": sys, "cache_control": Self.ephemeral]]
@@ -569,6 +574,37 @@ extension AnthropicProvider {
     /// correct without a release.
     public func effortVocabulary(for model: String) -> LLMEffortVocabulary? {
         EffortCatalog.shared.vocabulary(provider: Self.name, model: model)
+    }
+
+    /// Consecutive user messages made only of tool_result blocks become one
+    /// user message holding all the blocks, in order.
+    static func mergingToolResults(_ messages: [[String: Any]]) -> [[String: Any]] {
+        func resultBlocks(_ m: [String: Any]) -> [[String: Any]]? {
+            guard m["role"] as? String == "user",
+                  let blocks = m["content"] as? [[String: Any]], !blocks.isEmpty,
+                  blocks.allSatisfy({ $0["type"] as? String == "tool_result" })
+            else { return nil }
+            return blocks
+        }
+        var out: [[String: Any]] = []
+        for m in messages {
+            if let blocks = resultBlocks(m), let last = out.last, let previous = resultBlocks(last) {
+                out[out.count - 1]["content"] = previous + blocks
+            } else {
+                out.append(m)
+            }
+        }
+        return out
+    }
+
+    /// The largest output a model of that generation accepts, so an unset
+    /// limit never truncates a long answer and never exceeds what the model
+    /// allows (an over-limit request is a 400).
+    static func defaultMaxTokens(for model: String) -> Int {
+        let m = model.lowercased()
+        if m.hasPrefix("claude-3-opus") { return 4_096 }
+        if m.hasPrefix("claude-3-5") || m.hasPrefix("claude-3-") { return 8_192 }
+        return 32_000   // Claude 3.7, 4.x and later all accept at least this
     }
 
     /// One rule for curated and live entries alike, so the two cannot drift.
