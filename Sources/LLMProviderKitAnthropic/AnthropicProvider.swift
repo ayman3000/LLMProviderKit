@@ -229,14 +229,20 @@ public struct AnthropicProvider: LLMProvider {
 
         switch event.type {
         case "content_block_start":
-            // Tool use blocks arrive as content_block_start with type == "tool_use"
+            // A tool call opens with its id and name and an empty `input`; the
+            // arguments follow as `input_json_delta` pieces on the same block
+            // index. Both are handed to `StreamToolCallAssembler` (run by
+            // `stream()`), which joins them per index and releases whole calls
+            // before `.finish` — `{}` if no pieces came. Emitting `{}` here and
+            // dropping the pieces sent every Claude tool call out empty once the
+            // agent stopped re-asking streamed turns (2026-10-02).
             if let block = event.contentBlock, block.type == "tool_use" {
-                let toolCall = LLMToolCall(
+                return [.toolCall(LLMToolCall(
                     id: block.id ?? UUID().uuidString,
                     name: block.name ?? "",
-                    arguments: "{}"
-                )
-                return [.toolCall(toolCall)]
+                    arguments: "",
+                    providerMetadata: [StreamToolCallAssembler.indexKey: String(event.index ?? 0)]
+                ))]
             }
             return []
         case "content_block_delta":
@@ -248,8 +254,15 @@ public struct AnthropicProvider: LLMProvider {
             if let text = event.delta?.text, !text.isEmpty {
                 return [.text(text)]
             }
-            // Tool input deltas (partial_json) — cannot accumulate across stateless calls,
-            // so we skip emitting incomplete argument fragments.
+            // A piece of a tool call's arguments, for the call opened at this index.
+            if event.delta?.type == "input_json_delta", let piece = event.delta?.partialJSON, !piece.isEmpty {
+                return [.toolCall(LLMToolCall(
+                    id: "",
+                    name: "",
+                    arguments: piece,
+                    providerMetadata: [StreamToolCallAssembler.indexKey: String(event.index ?? 0)]
+                ))]
+            }
             return []
         case "message_delta":
             let usage = event.usage.map { u in
@@ -466,10 +479,12 @@ private struct AnthropicStreamEvent: Decodable {
         let type: String?
         let text: String?
         let thinking: String?
+        let partialJSON: String?
         let stopReason: String?
 
         enum CodingKeys: String, CodingKey {
             case type, text, thinking
+            case partialJSON = "partial_json"
             case stopReason = "stop_reason"
         }
     }
@@ -498,13 +513,14 @@ private struct AnthropicStreamEvent: Decodable {
     }
 
     let type: String
+    let index: Int?
     let delta: Delta?
     let contentBlock: ContentBlock?
     let usage: Usage?
     let error: ErrorDetail?
 
     enum CodingKeys: String, CodingKey {
-        case type, delta, usage, error
+        case type, index, delta, usage, error
         case contentBlock = "content_block"
     }
 }
