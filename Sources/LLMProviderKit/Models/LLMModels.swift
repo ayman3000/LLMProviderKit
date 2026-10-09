@@ -156,13 +156,18 @@ public struct LLMUsage: Sendable, Equatable {
     /// Responses `input_tokens_details.cached_tokens`, Anthropic
     /// `cache_read_input_tokens`. nil = the provider didn't say.
     public let cachedTokens: Int?
+    /// Prompt tokens written into the prompt cache on this call (also a subset
+    /// of `promptTokens`): Anthropic `cache_creation_input_tokens`, billed above
+    /// the plain input rate. nil = the provider didn't say or doesn't bill writes.
+    public let cacheWriteTokens: Int?
 
     public init(promptTokens: Int? = nil, completionTokens: Int? = nil, totalTokens: Int? = nil,
-                cachedTokens: Int? = nil) {
+                cachedTokens: Int? = nil, cacheWriteTokens: Int? = nil) {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.totalTokens = totalTokens
         self.cachedTokens = cachedTokens
+        self.cacheWriteTokens = cacheWriteTokens
     }
 }
 
