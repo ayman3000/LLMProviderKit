@@ -124,11 +124,18 @@ public struct GeminiProvider: LLMProvider {
                 ])
             }
 
-            if !parts.isEmpty {
-                contents.append([
-                    "role": geminiRole,
-                    "parts": parts
-                ])
+            guard !parts.isEmpty else { continue }
+            // Consecutive messages of one role go out as ONE content, parts in
+            // order. Gemini rejects a function-call turn that does not come
+            // right after a user or function-response turn, and an agent's
+            // history has a model turn before one whenever an evicted step's
+            // receipt (assistant text) precedes the next tool call. The merge
+            // is deterministic: the same messages always give the same body.
+            if let last = contents.last, last["role"] as? String == geminiRole,
+               let earlier = last["parts"] as? [[String: Any]] {
+                contents[contents.count - 1]["parts"] = earlier + parts
+            } else {
+                contents.append(["role": geminiRole, "parts": parts])
             }
         }
 
