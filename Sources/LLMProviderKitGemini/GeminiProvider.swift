@@ -162,7 +162,7 @@ public struct GeminiProvider: LLMProvider {
             bodyDict["tools"] = [["functionDeclarations": functionDeclarations]]
         }
 
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [.sortedKeys])
         return urlRequest
     }
 

@@ -189,7 +189,7 @@ public struct AnthropicProvider: LLMProvider {
             bodyDict["tool_choice"] = ["type": "auto"]
         }
 
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [.sortedKeys])
         return urlRequest
     }
 

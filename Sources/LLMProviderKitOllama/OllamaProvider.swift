@@ -111,7 +111,7 @@ public struct OllamaProvider: LLMProvider {
             bodyDict["think"] = effort.rawValue
         }
 
-        let bodyData = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
+        let bodyData = try JSONSerialization.data(withJSONObject: bodyDict, options: [.sortedKeys])
         urlRequest.httpBody = bodyData
         Self.debugLogRequest(urlRequest, body: bodyData)
         return urlRequest
