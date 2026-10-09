@@ -60,7 +60,7 @@ public struct OpenRouterProvider: LLMProvider {
               var json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
         else { return }
         json["reasoning"] = ["effort": effort.rawValue]
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: json, options: [])
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
     }
 
     /// OpenRouter publishes the widest OpenAI-compatible vocabulary and

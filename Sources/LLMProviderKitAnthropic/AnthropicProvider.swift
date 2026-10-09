@@ -189,11 +189,21 @@ public struct AnthropicProvider: LLMProvider {
             bodyDict["tool_choice"] = ["type": "auto"]
         }
 
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [.sortedKeys])
         return urlRequest
     }
 
     static let ephemeral: [String: String] = ["type": "ephemeral"]
+
+    /// Anthropic's `input_tokens` leaves out cache reads and cache writes.
+    /// `promptTokens` is the whole prompt on every other provider, with
+    /// `cachedTokens` a part of it — so it is the sum here too.
+    static func usage(input: Int?, output: Int?, cacheRead: Int?, cacheWrite: Int?) -> LLMUsage {
+        let parts = [input, cacheRead, cacheWrite].compactMap { $0 }
+        let prompt: Int? = parts.isEmpty ? nil : parts.reduce(0, +)
+        return LLMUsage(promptTokens: prompt, completionTokens: output,
+                        totalTokens: (prompt ?? 0) + (output ?? 0), cachedTokens: cacheRead)
+    }
 
     /// Put a cache breakpoint on the last content block of the last message.
     /// String content becomes a single text block so it can carry the marker.
@@ -266,12 +276,8 @@ public struct AnthropicProvider: LLMProvider {
             return []
         case "message_delta":
             let usage = event.usage.map { u in
-                LLMUsage(
-                    promptTokens: u.inputTokens,
-                    completionTokens: u.outputTokens,
-                    totalTokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0),
-                    cachedTokens: u.cacheReadInputTokens
-                )
+                Self.usage(input: u.inputTokens, output: u.outputTokens,
+                           cacheRead: u.cacheReadInputTokens, cacheWrite: u.cacheCreationInputTokens)
             }
             let reason = event.delta?.stopReason.map { r -> LLMFinishReason in
                 switch r {
@@ -303,7 +309,7 @@ public struct AnthropicProvider: LLMProvider {
                 text += blockText
             }
             if block.type == "tool_use" {
-                let inputData = try? JSONSerialization.data(withJSONObject: block.input ?? [:], options: [])
+                let inputData = try? JSONSerialization.data(withJSONObject: block.input ?? [:], options: [.sortedKeys])
                 let inputString = inputData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 toolCalls.append(LLMToolCall(
                     id: block.id ?? UUID().uuidString,
@@ -314,12 +320,8 @@ public struct AnthropicProvider: LLMProvider {
         }
 
         let usage = decoded.usage.map { u in
-            LLMUsage(
-                promptTokens: u.inputTokens,
-                completionTokens: u.outputTokens,
-                totalTokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0),
-                cachedTokens: u.cacheReadInputTokens
-            )
+            Self.usage(input: u.inputTokens, output: u.outputTokens,
+                       cacheRead: u.cacheReadInputTokens, cacheWrite: u.cacheCreationInputTokens)
         }
 
         let finishReason = decoded.stopReason.map { reason -> LLMFinishReason in
@@ -452,11 +454,13 @@ private struct AnthropicResponse: Decodable {
         let inputTokens: Int?
         let outputTokens: Int?
         let cacheReadInputTokens: Int?
+        let cacheCreationInputTokens: Int?
 
         enum CodingKeys: String, CodingKey {
             case inputTokens = "input_tokens"
             case outputTokens = "output_tokens"
             case cacheReadInputTokens = "cache_read_input_tokens"
+            case cacheCreationInputTokens = "cache_creation_input_tokens"
         }
     }
 
@@ -499,11 +503,13 @@ private struct AnthropicStreamEvent: Decodable {
         let inputTokens: Int?
         let outputTokens: Int?
         let cacheReadInputTokens: Int?
+        let cacheCreationInputTokens: Int?
 
         enum CodingKeys: String, CodingKey {
             case inputTokens = "input_tokens"
             case outputTokens = "output_tokens"
             case cacheReadInputTokens = "cache_read_input_tokens"
+            case cacheCreationInputTokens = "cache_creation_input_tokens"
         }
     }
 

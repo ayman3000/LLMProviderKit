@@ -162,7 +162,7 @@ public struct GeminiProvider: LLMProvider {
             bodyDict["tools"] = [["functionDeclarations": functionDeclarations]]
         }
 
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [.sortedKeys])
         return urlRequest
     }
 
@@ -234,7 +234,7 @@ public struct GeminiProvider: LLMProvider {
                 text += partText
             }
             if let funcCall = part.functionCall {
-                let argsData = try? JSONSerialization.data(withJSONObject: funcCall.args ?? [:], options: [])
+                let argsData = try? JSONSerialization.data(withJSONObject: funcCall.args ?? [:], options: [.sortedKeys])
                 let argsString = argsData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 let toolCall = LLMToolCall(
                     id: funcCall.name ?? UUID().uuidString,
@@ -291,7 +291,7 @@ public struct GeminiProvider: LLMProvider {
                 }
                 // Check for function call
                 if let funcCall = part.functionCall {
-                    let argsData = try? JSONSerialization.data(withJSONObject: funcCall.args ?? [:], options: [])
+                    let argsData = try? JSONSerialization.data(withJSONObject: funcCall.args ?? [:], options: [.sortedKeys])
                     let argsString = argsData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                     toolCalls.append(LLMToolCall(
                         id: funcCall.name ?? UUID().uuidString,

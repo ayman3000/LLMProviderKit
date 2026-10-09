@@ -115,7 +115,9 @@ public struct OpenAIProvider: LLMProvider {
             bodyDict["tool_choice"] = "auto"
         }
 
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [])
+        // Sorted keys: the same request must be the same bytes on every call,
+        // or the provider's prompt cache stops at the first reordered key.
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: bodyDict, options: [.sortedKeys])
         return urlRequest
     }
 
