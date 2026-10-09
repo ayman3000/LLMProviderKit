@@ -309,7 +309,7 @@ public struct AnthropicProvider: LLMProvider {
                 text += blockText
             }
             if block.type == "tool_use" {
-                let inputData = try? JSONSerialization.data(withJSONObject: block.input ?? [:], options: [])
+                let inputData = try? JSONSerialization.data(withJSONObject: block.input ?? [:], options: [.sortedKeys])
                 let inputString = inputData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 toolCalls.append(LLMToolCall(
                     id: block.id ?? UUID().uuidString,
