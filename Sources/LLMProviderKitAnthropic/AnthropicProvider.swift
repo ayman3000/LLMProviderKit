@@ -136,10 +136,9 @@ public struct AnthropicProvider: LLMProvider {
         // provider's minimum prefix size the marker is simply ignored.
         // Observed 2026-09-06: without this, cache_read_input_tokens was
         // never reported for any Naseem call.
-        // Every tool_result for one assistant turn's tool_use blocks must sit
-        // in ONE user message right after it; parallel tool calls used to
-        // arrive as one user message each, which the API refuses.
-        bodyDict["messages"] = Self.markingLastBlockForCache(Self.mergingToolResults(messages))
+        // Runs of one role are merged first (see mergingConsecutiveRoles), so
+        // the breakpoint lands on the last block of the merged final entry.
+        bodyDict["messages"] = Self.markingLastBlockForCache(Self.mergingConsecutiveRoles(messages))
 
         if let sys = systemText {
             bodyDict["system"] = [["type": "text", "text": sys, "cache_control": Self.ephemeral]]
@@ -604,20 +603,31 @@ extension AnthropicProvider {
         EffortCatalog.shared.vocabulary(provider: Self.name, model: model)
     }
 
-    /// Consecutive user messages made only of tool_result blocks become one
-    /// user message holding all the blocks, in order.
-    static func mergingToolResults(_ messages: [[String: Any]]) -> [[String: Any]] {
-        func resultBlocks(_ m: [String: Any]) -> [[String: Any]]? {
-            guard m["role"] as? String == "user",
-                  let blocks = m["content"] as? [[String: Any]], !blocks.isEmpty,
-                  blocks.allSatisfy({ $0["type"] as? String == "tool_result" })
-            else { return nil }
-            return blocks
+    /// Consecutive messages of one role become ONE message, content blocks in
+    /// order. Covers parallel tool results (every tool_result for one
+    /// assistant turn's tool_use blocks must sit in one user message), a plain
+    /// note after a tool-result turn, two plain user messages in a row, and
+    /// assistant receipts next to the following tool-call turn.
+    ///
+    /// A lone message keeps its shape (plain text stays a string). In a merged
+    /// run each plain text becomes its own text block, never a joined string,
+    /// so no separator is invented and the body is byte-stable for the same
+    /// input. Empty texts are dropped from a merge: an empty text block is a 400.
+    /// The API combines same-role turns server-side too, but the client does
+    /// not rely on that.
+    static func mergingConsecutiveRoles(_ messages: [[String: Any]]) -> [[String: Any]] {
+        func blocks(_ m: [String: Any]) -> [[String: Any]] {
+            if let text = m["content"] as? String {
+                return text.isEmpty ? [] : [["type": "text", "text": text]]
+            }
+            return (m["content"] as? [[String: Any]]) ?? []
         }
         var out: [[String: Any]] = []
         for m in messages {
-            if let blocks = resultBlocks(m), let last = out.last, let previous = resultBlocks(last) {
-                out[out.count - 1]["content"] = previous + blocks
+            if let last = out.last, let role = m["role"] as? String, last["role"] as? String == role {
+                let merged = blocks(last) + blocks(m)
+                // Two empty texts stay as the first entry rather than [] content.
+                if !merged.isEmpty { out[out.count - 1]["content"] = merged }
             } else {
                 out.append(m)
             }
