@@ -137,8 +137,11 @@ public struct AnthropicProvider: LLMProvider {
         // Observed 2026-09-06: without this, cache_read_input_tokens was
         // never reported for any Naseem call.
         // Runs of one role are merged first (see mergingConsecutiveRoles), so
-        // the breakpoint lands on the last block of the merged final entry.
-        bodyDict["messages"] = Self.markingLastBlockForCache(Self.mergingConsecutiveRoles(messages))
+        // both message breakpoints land on merged entries: the last block of
+        // the final entry, and the last block of the entry right before the
+        // newest assistant turn (where the previous request ended).
+        bodyDict["messages"] = Self.markingLastBlockForCache(
+            Self.markingPreviousTurnForCache(Self.mergingConsecutiveRoles(messages)))
 
         if let sys = systemText {
             bodyDict["system"] = [["type": "text", "text": sys, "cache_control": Self.ephemeral]]
@@ -219,6 +222,34 @@ public struct AnthropicProvider: LLMProvider {
         }
         var out = messages
         out[out.count - 1] = last
+        return out
+    }
+
+    /// A breakpoint on the last block of the message right before the newest
+    /// assistant turn — where the previous request of this conversation
+    /// ended. The lookup from the newest breakpoint walks back only about 20
+    /// blocks, and one step with many parallel tool calls adds more than
+    /// that; this breakpoint matches the previous request's entry exactly.
+    /// With tools, system and the last message that is four, Anthropic's
+    /// limit. Runs on merged entries (after mergingConsecutiveRoles), so the
+    /// target is never the final message. String content becomes one text
+    /// block, as for the last message.
+    static func markingPreviousTurnForCache(_ messages: [[String: Any]]) -> [[String: Any]] {
+        guard let newestAssistant = messages.lastIndex(where: { $0["role"] as? String == "assistant" }),
+              newestAssistant > 0 else { return messages }
+        let target = newestAssistant - 1
+        var message = messages[target]
+        if let text = message["content"] as? String {
+            guard !text.isEmpty else { return messages }
+            message["content"] = [["type": "text", "text": text, "cache_control": ephemeral]]
+        } else if var blocks = message["content"] as? [[String: Any]], !blocks.isEmpty {
+            blocks[blocks.count - 1]["cache_control"] = ephemeral
+            message["content"] = blocks
+        } else {
+            return messages
+        }
+        var out = messages
+        out[target] = message
         return out
     }
 
