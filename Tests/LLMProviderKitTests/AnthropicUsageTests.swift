@@ -44,4 +44,14 @@ struct AnthropicUsageTests {
         #expect(AnthropicProvider.usage(input: nil, output: 3, cacheRead: nil, cacheWrite: nil).promptTokens == nil)
         #expect(AnthropicProvider.usage(input: nil, output: nil, cacheRead: 7, cacheWrite: nil).promptTokens == 7)
     }
+
+    /// Cache writes cost more than plain input (1.25x for 5-minute writes), so
+    /// a cost estimate needs them apart from the rest of the prompt.
+    @Test func cacheWritesAreReportedApart() {
+        let u = AnthropicProvider.usage(input: 50, output: 3, cacheRead: 900, cacheWrite: 40)
+        #expect(u.promptTokens == 990)
+        #expect(u.cachedTokens == 900)
+        #expect(u.cacheWriteTokens == 40)
+        #expect(LLMUsage(promptTokens: 1).cacheWriteTokens == nil)
+    }
 }

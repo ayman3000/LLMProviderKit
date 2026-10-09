@@ -204,7 +204,8 @@ public struct AnthropicProvider: LLMProvider {
         let parts = [input, cacheRead, cacheWrite].compactMap { $0 }
         let prompt: Int? = parts.isEmpty ? nil : parts.reduce(0, +)
         return LLMUsage(promptTokens: prompt, completionTokens: output,
-                        totalTokens: (prompt ?? 0) + (output ?? 0), cachedTokens: cacheRead)
+                        totalTokens: (prompt ?? 0) + (output ?? 0), cachedTokens: cacheRead,
+                        cacheWriteTokens: cacheWrite)
     }
 
     /// Put a cache breakpoint on the last content block of the last message.
