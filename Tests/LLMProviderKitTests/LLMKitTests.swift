@@ -1197,8 +1197,13 @@ struct InProcessProviderTests {
         #expect((tools.last?["cache_control"] as? [String: String])?["type"] == "ephemeral")
 
         let messages = try #require(body["messages"] as? [[String: Any]])
-        // Only the final message carries a breakpoint; earlier ones stay byte-stable.
-        #expect(messages.dropLast().allSatisfy { $0["content"] is String })
+        // The final message and the one right before the newest assistant turn
+        // (where the previous request ended) carry breakpoints; the rest stay
+        // byte-stable.
+        #expect(messages[1]["content"] is String)
+        let previousBlocks = try #require(messages[0]["content"] as? [[String: Any]])
+        #expect(previousBlocks.last?["text"] as? String == "Hi")
+        #expect((previousBlocks.last?["cache_control"] as? [String: String])?["type"] == "ephemeral")
         let lastBlocks = try #require(messages.last?["content"] as? [[String: Any]])
         #expect(lastBlocks.last?["text"] as? String == "Read x")
         #expect((lastBlocks.last?["cache_control"] as? [String: String])?["type"] == "ephemeral")
