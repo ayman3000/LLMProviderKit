@@ -188,6 +188,9 @@ public final class EffortCatalog: @unchecked Sendable {
             ("claude-opus-4-8*", anthropic, [:]), ("claude-opus-4-7*", anthropic, [:]),
             ("claude-opus-4-6*", anthropic, [:]), ("claude-opus-4-5*", anthropic, [:]),
             ("claude-sonnet-5*", anthropic, [:]), ("claude-sonnet-4-6*", anthropic, [:]),
+            // Haiku 5.5 takes all five; Haiku 4.5 answers "This model does not
+            // support the effort parameter" (count_tokens, 2026-10-13).
+            ("claude-haiku-5*", anthropic, [:]),
         ])) { a, _ in a }
 
         // OpenRouter — widest OpenAI-compatible vocabulary; it normalizes per
