@@ -87,6 +87,33 @@ public final class EffortCatalog: @unchecked Sendable {
     private let lock = NSLock()
     private var builtIn: [Key: Rule] = [:]
     private var overrides: [Key: Rule] = [:]
+    /// What a server reported about models no row declares: "provider|slug" →
+    /// whether the model thinks. Fed by the app (Ollama's `/api/show`).
+    private var reportedThinking: [String: Bool] = [:]
+
+    /// Providers whose undeclared thinking models get Off / High. Measured
+    /// 2026-10-13: every thinking model tried on Ollama and Ollama Cloud stops
+    /// on Off and thinks on High; the levels between were indistinguishable
+    /// from the default on several, so they are not offered on a guess.
+    private static let onOffProviders: Set<String> = ["ollama", "ollamacloud"]
+    public static let onOff = LLMEffortVocabulary(supported: [.off, .high], overrides: [:])
+
+    /// Record what a server says about a model's thinking. Only consulted for a
+    /// model no built-in or override row covers.
+    public func noteThinking(provider: String, model: String, thinks: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        reportedThinking[Self.thinkingKey(provider, model)] = thinks
+    }
+
+    /// What was recorded for `model`, or nil when nothing was.
+    public func reportedThinking(provider: String, model: String) -> Bool? {
+        lock.lock(); defer { lock.unlock() }
+        return reportedThinking[Self.thinkingKey(provider, model)]
+    }
+
+    private static func thinkingKey(_ provider: String, _ model: String) -> String {
+        provider.lowercased() + "|" + slug(model)
+    }
 
     private init() { builtIn = Self.declaredRules }
 
@@ -105,6 +132,11 @@ public final class EffortCatalog: @unchecked Sendable {
         for id in [model.lowercased(), Self.slug(model)] {
             if let rule = match(id, provider: provider, in: overrides) { return rule.vocabulary }
             if let rule = match(id, provider: provider, in: builtIn) { return rule.vocabulary }
+        }
+        // No row: a thinking model on an on/off provider still gets Off / High.
+        if Self.onOffProviders.contains(provider.lowercased()),
+           reportedThinking[Self.thinkingKey(provider, model)] == true {
+            return Self.onOff
         }
         return nil
     }
