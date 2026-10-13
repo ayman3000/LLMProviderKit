@@ -208,20 +208,29 @@ public final class EffortCatalog: @unchecked Sendable {
         for provider in ["ollama", "ollamacloud"] {
             let base = provider == "ollama" ? ollamaLocal : ollamaCloud
             all.merge(rules(provider, [
+                // Every family below stops thinking on Off (`none` on the cloud
+                // wire, `think: false` natively): checked live 2026-10-13 on
+                // glm-5.2, kimi-k3, kimi-k2.6/k2.7, deepseek-v4.1, minimax-m3
+                // — zero reasoning, replies in about a second.
+                //
                 // GLM-5.2's knob is exactly its minimum thinking level and its
                 // top tier; 5.3 widens it to a graded scale.
-                ("glm-5.2*", [.high, .max], toMax),
-                ("glm-5-2*", [.high, .max], toMax),
-                ("glm-5.3*", [.low, .medium, .high, .max], toMax),
-                ("glm-5-3*", [.low, .medium, .high, .max], toMax),
+                ("glm-5.2*", [.off, .high, .max], toMax),
+                ("glm-5-2*", [.off, .high, .max], toMax),
+                ("glm-5.3*", [.off, .low, .medium, .high, .max], toMax),
+                ("glm-5-3*", [.off, .low, .medium, .high, .max], toMax),
                 ("glm*", base, toMax),
-                ("deepseek-v4*", [.low, .medium, .high, .max], toMax),
+                ("deepseek-v4*", [.off, .low, .medium, .high, .max], toMax),
                 ("deepseek*", base, toMax),
                 // Kimi K3 has no medium, and its `high` is both the positional
                 // middle and the server default — so medium belongs at high.
-                ("k3*", [.low, .high, .max], [.medium: .high, .xhigh: .max]),
-                ("kimi-k3*", [.low, .high, .max], [.medium: .high, .xhigh: .max]),
-                ("kimi*", [.low, .medium, .high], [:]),
+                ("k3*", [.off, .low, .high, .max], [.medium: .high, .xhigh: .max]),
+                ("kimi-k3*", [.off, .low, .high, .max], [.medium: .high, .xhigh: .max]),
+                ("kimi*", [.off, .low, .medium, .high], [:]),
+                // MiniMax M3 thinks or doesn't: low and high measured no
+                // different from sending nothing (12 runs, 2026-10-13). High
+                // stands for "on".
+                ("minimax*", [.off, .high], [:]),
             ])) { a, _ in a }
         }
 

@@ -37,15 +37,15 @@ struct EffortCatalogTests {
         let c = catalog()
         #expect(c.vocabulary(provider: "openrouter", model: "anthropic/claude-sonnet-4") != nil)
         #expect(c.vocabulary(provider: "ollamaCloud", model: "glm-5.2:cloud")?.supported
-                == [.high, .max])
+                == [.off, .high, .max])
     }
 
     /// A specific row must be able to carve an exception out of a general one.
     @Test func theLongestPrefixWins() {
         let c = catalog()
-        #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.high, .max])
+        #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.off, .high, .max])
         #expect(c.vocabulary(provider: "ollama", model: "glm-5.3")?.supported
-                == [.low, .medium, .high, .max])
+                == [.off, .low, .medium, .high, .max])
         // …and anything else GLM falls back to the wire's own set.
         #expect(c.vocabulary(provider: "ollama", model: "glm-4")?.supported
                 == [.low, .medium, .high, .max])
@@ -53,7 +53,7 @@ struct EffortCatalogTests {
 
     @Test func anOverrideWinsOverTheBuiltInRow() throws {
         let c = catalog()
-        #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.high, .max])
+        #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.off, .high, .max])
         c.applyOverrides([
             EffortCatalog.Key(provider: "ollama", pattern: "glm-5.2*"):
                 EffortCatalog.Rule(supported: [.low, .high], overrides: [.medium: .low])
@@ -62,7 +62,7 @@ struct EffortCatalogTests {
         #expect(overridden.supported == [.low, .high])
         #expect(overridden.clamp(.medium) == .low)
         c._resetOverrides()
-        #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.high, .max])
+        #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.off, .high, .max])
     }
 
     @Test func aFileOfOverridesLoads() throws {
@@ -90,7 +90,7 @@ struct EffortCatalogTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         #expect(throws: (any Error).self) { try c.loadOverrides(from: url) }
-        #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.high, .max])
+        #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.off, .high, .max])
     }
 
     /// An unknown level name in a file must not take the whole file down with
@@ -104,6 +104,6 @@ struct EffortCatalogTests {
         defer { try? FileManager.default.removeItem(at: url); c._resetOverrides() }
 
         #expect(throws: (any Error).self) { try c.loadOverrides(from: url) }
-        #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.high, .max])
+        #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.off, .high, .max])
     }
 }

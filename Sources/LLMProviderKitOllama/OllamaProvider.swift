@@ -107,8 +107,10 @@ public struct OllamaProvider: LLMProvider {
         // as a boolean. Sent only for a model with a declared vocabulary, and
         // clamped onto what that model accepts, so an unsupported level is
         // corrected here rather than refused by the server.
+        // Off is the boolean: the string "none" is ignored and the model
+        // thinks anyway (glm-5.2, checked live).
         if let effort = wireEffort(for: request) {
-            bodyDict["think"] = effort.rawValue
+            bodyDict["think"] = effort == .off ? false : effort.rawValue
         }
 
         let bodyData = try JSONSerialization.data(withJSONObject: bodyDict, options: [.sortedKeys])

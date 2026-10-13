@@ -88,9 +88,9 @@ import LLMProviderKitOllama
 struct OllamaEffortTests {
     @Test func glmVersionsDifferAndBothAreDeclared() {
         // 5.2's knob starts at its minimum thinking level; 5.3 is graded.
-        #expect(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: "glm-5.2:cloud")?.supported == [.high, .max])
+        #expect(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: "glm-5.2:cloud")?.supported == [.off, .high, .max])
         #expect(EffortCatalog.shared.vocabulary(provider: "ollama", model: "glm-5.3")?.supported
-                == [.low, .medium, .high, .max])
+                == [.off, .low, .medium, .high, .max])
     }
 
     /// The level the app defaults to must land somewhere valid on the model
@@ -104,12 +104,12 @@ struct OllamaEffortTests {
 
     @Test func kimiK3IsMatchedAsADelimitedToken() {
         for id in ["k3", "k3-256k", "kimi-k3-cot"] {
-            #expect(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: id)?.supported == [.low, .high, .max],
+            #expect(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: id)?.supported == [.off, .low, .high, .max],
                     "\(id) should be K3")
         }
         // K2-era names must not match the K3 token.
         #expect(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: "kimi-k2.6")?.supported
-                == [.low, .medium, .high])
+                == [.off, .low, .medium, .high])
     }
 
     /// K3's `high` is its middle AND its server default, so ladder arithmetic
@@ -142,6 +142,35 @@ struct OllamaEffortTests {
         let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(body["think"] as? String == "low")
         #expect((body["options"] as? [String: Any])?["think"] == nil)
+    }
+
+    /// Natively, Off must be `think: false`: the string "none" is ignored and
+    /// the model reasons anyway.
+    @Test func offIsTheBooleanFalseNatively() throws {
+        let provider = OllamaProvider(configuration: OllamaProvider.local(
+            model: "glm-5.2:cloud", baseURL: URL(string: "http://localhost:11434")!))
+        let request = LLMRequest(model: "glm-5.2:cloud",
+                                 messages: [LLMMessage(role: .user, content: "hi")],
+                                 reasoningEffort: .off)
+        let data = try #require(provider.prepareRequest(request, stream: false).httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(body["think"] as? Bool == false)
+    }
+
+    /// MiniMax is on or off; any other ask keeps thinking on.
+    @Test func minimaxIsOnOrOff() throws {
+        let v = try #require(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: "minimax-m3:cloud"))
+        #expect(v.supported == [.off, .high])
+        #expect(v.clamp(.off) == .off)
+        #expect(v.clamp(.medium) == .high)
+        #expect(v.clamp(.max) == .high)
+    }
+
+    /// Off is offered, but a lower ask never lands on it.
+    @Test func offIsNeverAClampTargetOnOllama() throws {
+        let glm52 = try #require(EffortCatalog.shared.vocabulary(provider: "ollamaCloud", model: "glm-5.2:cloud"))
+        #expect(glm52.clamp(.minimal) == .high)
+        #expect(glm52.clamp(.low) == .high)
     }
 
     @Test func noEffortSendsNoThink() throws {
