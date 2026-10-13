@@ -136,3 +136,21 @@ struct ReportedThinkingTests {
         #expect(c.vocabulary(provider: "openrouter", model: "someone/new-z") == nil)
     }
 }
+
+struct OverrideRulesParsingTests {
+    @Test func parsesWithoutApplying() throws {
+        let json = Data(#"{"ollama": {"zz-unlisted*": {"supported": ["low","high"], "overrides": {}}}}"#.utf8)
+        let rules = try EffortCatalog.overrideRules(fromJSON: json)
+        #expect(rules[EffortCatalog.Key(provider: "ollama", pattern: "zz-unlisted*")]?.supported == [.low, .high])
+        // Parsed, not applied.
+        #expect(EffortCatalog.shared.vocabulary(provider: "ollama", model: "zz-unlisted") == nil)
+    }
+
+    @Test func emptyObjectIsNoRules() throws {
+        #expect(try EffortCatalog.overrideRules(fromJSON: Data("{}".utf8)).isEmpty)
+    }
+
+    @Test func malformedThrows() {
+        #expect(throws: (any Error).self) { try EffortCatalog.overrideRules(fromJSON: Data("{ nope".utf8)) }
+    }
+}
