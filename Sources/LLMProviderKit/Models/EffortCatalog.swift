@@ -178,16 +178,23 @@ public final class EffortCatalog: @unchecked Sendable {
     /// its built-in rows rather than losing the feature to a typo.
     @discardableResult
     public func loadOverrides(from url: URL) throws -> Int {
-        let wire = try JSONDecoder().decode([String: [String: Rule]].self,
-                                            from: Data(contentsOf: url))
+        let rules = try Self.overrideRules(fromJSON: Data(contentsOf: url))
+        applyOverrides(rules)
+        return rules.count
+    }
+
+    /// Parse an overrides file without applying it — for an app that layers
+    /// several sources (a published file under the user's own) and applies
+    /// the merge once. Throws on anything malformed, unknown levels included.
+    public static func overrideRules(fromJSON data: Data) throws -> [Key: Rule] {
+        let wire = try JSONDecoder().decode([String: [String: Rule]].self, from: data)
         var rules: [Key: Rule] = [:]
         for (provider, models) in wire {
             for (pattern, rule) in models {
                 rules[Key(provider: provider, pattern: pattern)] = rule
             }
         }
-        applyOverrides(rules)
-        return rules.count
+        return rules
     }
 
     /// Test hook.
