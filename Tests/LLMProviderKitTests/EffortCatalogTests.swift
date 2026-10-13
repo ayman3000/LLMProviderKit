@@ -107,3 +107,32 @@ struct EffortCatalogTests {
         #expect(c.vocabulary(provider: "ollama", model: "glm-5.2")?.supported == [.off, .high, .max])
     }
 }
+
+/// Undeclared Ollama models: Off / High when the server says they think.
+struct ReportedThinkingTests {
+    @Test func anUndeclaredThinkingModelGetsOnOff() {
+        let c = EffortCatalog.shared
+        #expect(c.vocabulary(provider: "ollamaCloud", model: "brand-new-x:cloud") == nil)
+        c.noteThinking(provider: "ollamaCloud", model: "brand-new-x:cloud", thinks: true)
+        #expect(c.vocabulary(provider: "ollamaCloud", model: "brand-new-x:cloud")?.supported == [.off, .high])
+        #expect(c.vocabulary(provider: "ollamacloud", model: "brand-new-x")?.supported == [.off, .high])
+    }
+
+    @Test func aNonThinkingModelStaysWithoutLevels() {
+        let c = EffortCatalog.shared
+        c.noteThinking(provider: "ollama", model: "plain-model-y", thinks: false)
+        #expect(c.vocabulary(provider: "ollama", model: "plain-model-y") == nil)
+    }
+
+    @Test func aDeclaredRowWinsOverTheReport() {
+        let c = EffortCatalog.shared
+        c.noteThinking(provider: "ollamaCloud", model: "glm-5.3", thinks: true)
+        #expect(c.vocabulary(provider: "ollamaCloud", model: "glm-5.3")?.supported == [.off, .low, .medium, .high, .max])
+    }
+
+    @Test func otherProvidersIgnoreReports() {
+        let c = EffortCatalog.shared
+        c.noteThinking(provider: "openrouter", model: "someone/new-z", thinks: true)
+        #expect(c.vocabulary(provider: "openrouter", model: "someone/new-z") == nil)
+    }
+}
