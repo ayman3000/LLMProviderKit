@@ -888,6 +888,32 @@ extension ProviderTests {
         #expect(out.count == msgs.count + 1)
     }
 
+    /// Two image-bearing tool results from one reply: both results stay
+    /// adjacent, and ONE user message with both images follows them.
+    @Test func parallelToolImagesFollowAllResults() {
+        let a = LLMImage(data: Data([0xA]), mimeType: "image/png")
+        let b = LLMImage(data: Data([0xB]), mimeType: "image/png")
+        let msgs: [LLMMessage] = [
+            .user("go"),
+            LLMMessage(role: .tool, content: "shot A", images: [a], toolCallId: "ca"),
+            LLMMessage(role: .tool, content: "text only", images: [], toolCallId: "cx"),
+            LLMMessage(role: .tool, content: "shot B", images: [b], toolCallId: "cb"),
+            .assistant("done"),
+        ]
+        let out = LLMMessage.expandingToolImagesToUserMessages(msgs)
+        #expect(out.map(\.role) == [.user, .tool, .tool, .tool, .user, .assistant])
+        #expect(out[1...3].allSatisfy { $0.images.isEmpty })
+        #expect(out[1...3].map(\.toolCallId) == ["ca", "cx", "cb"])
+        #expect(out[4].images.map(\.base64) == [a.base64, b.base64])
+        #expect(out[4].content.contains("2 tool calls"))
+    }
+
+    /// Tool results without images produce no extra message.
+    @Test func toolResultsWithoutImagesPassThrough() {
+        let msgs: [LLMMessage] = [.user("go"), LLMMessage(role: .tool, content: "t", images: [], toolCallId: "c")]
+        #expect(LLMMessage.expandingToolImagesToUserMessages(msgs).count == 2)
+    }
+
     @Test func openAIToolResultImageBecomesFollowingUserMessage() throws {
         let provider = OpenAIProvider(configuration: OpenAIProvider.openAI(apiKey: "test", model: "gpt-4o-mini"))
         let img = LLMImage(data: Data([0x1]), mimeType: "image/png")
