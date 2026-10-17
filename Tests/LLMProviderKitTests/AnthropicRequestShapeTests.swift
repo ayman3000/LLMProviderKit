@@ -37,6 +37,29 @@ struct AnthropicRequestShapeTests {
         #expect(results.allSatisfy { $0["type"] as? String == "tool_result" })
     }
 
+    /// A pasted image with no words (2026-10-17): the empty text block made
+    /// Anthropic refuse the whole request.
+    @Test func anImageWithoutWordsHasNoEmptyTextBlock() throws {
+        var user = LLMMessage(role: .user, content: "")
+        user.images = [LLMImage(data: Data([1, 2, 3]))]
+        let b = try body([user])
+        let messages = try #require(b["messages"] as? [[String: Any]])
+        let blocks = try #require(messages[0]["content"] as? [[String: Any]])
+        #expect(blocks.map { $0["type"] as? String } == ["image"])
+    }
+
+    @Test func aToolResultWithOnlyAnImageHasNoEmptyTextBlock() throws {
+        var assistant = LLMMessage(role: .assistant, content: "")
+        assistant.toolCalls = [LLMToolCall(id: "a1", name: "screenshot", arguments: "{}")]
+        var r1 = LLMMessage(role: .tool, content: ""); r1.toolCallId = "a1"
+        r1.images = [LLMImage(data: Data([1, 2, 3]))]
+        let b = try body([LLMMessage(role: .user, content: "go"), assistant, r1])
+        let messages = try #require(b["messages"] as? [[String: Any]])
+        let blocks = try #require(messages[2]["content"] as? [[String: Any]])
+        let inner = blocks.flatMap { ($0["content"] as? [[String: Any]]) ?? [] }
+        #expect(!inner.contains { $0["type"] as? String == "text" && ($0["text"] as? String ?? "").isEmpty })
+    }
+
     @Test func aSingleToolResultIsUnchanged() throws {
         var assistant = LLMMessage(role: .assistant, content: "")
         assistant.toolCalls = [LLMToolCall(id: "a1", name: "read_file", arguments: "{}")]

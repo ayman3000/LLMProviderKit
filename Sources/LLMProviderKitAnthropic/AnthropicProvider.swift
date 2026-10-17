@@ -62,9 +62,10 @@ public struct AnthropicProvider: LLMProvider {
             // Tool result messages → content as tool_result blocks
             if msg.role == .tool {
                 if let toolCallId = msg.toolCallId {
-                    var toolResultContent: [[String: Any]] = [
-                        ["type": "text", "text": msg.content]
-                    ]
+                    // An empty text block is refused ("text content blocks
+                    // must be non-empty"); a screenshot-only result has none.
+                    var toolResultContent: [[String: Any]] = msg.content.isEmpty
+                        ? [] : [["type": "text", "text": msg.content]]
                     for img in msg.images {
                         toolResultContent.append([
                             "type": "image",
@@ -75,11 +76,12 @@ public struct AnthropicProvider: LLMProvider {
                             ]
                         ])
                     }
-                    let toolResultBlock: [String: Any] = [
+                    var toolResultBlock: [String: Any] = [
                         "type": "tool_result",
-                        "tool_use_id": toolCallId,
-                        "content": toolResultContent
+                        "tool_use_id": toolCallId
                     ]
+                    // `content` is optional; an empty result simply has none.
+                    if !toolResultContent.isEmpty { toolResultBlock["content"] = toolResultContent }
                     msgDict["content"] = [toolResultBlock]
                 } else {
                     msgDict["content"] = [["type": "text", "text": msg.content]]
@@ -105,9 +107,11 @@ public struct AnthropicProvider: LLMProvider {
                 }
                 msgDict["content"] = blocks
             }
-            // User messages with images → content as text + image blocks
+            // User messages with images → content as text + image blocks.
+            // A pasted image with no words has no text block: an empty one
+            // is refused.
             else if !msg.images.isEmpty {
-                var blocks: [[String: Any]] = [["type": "text", "text": msg.content]]
+                var blocks: [[String: Any]] = msg.content.isEmpty ? [] : [["type": "text", "text": msg.content]]
                 for img in msg.images {
                     blocks.append([
                         "type": "image",
