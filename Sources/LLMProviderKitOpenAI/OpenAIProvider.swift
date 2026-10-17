@@ -55,7 +55,8 @@ public struct OpenAIProvider: LLMProvider {
                     "content": msg.content
                 ]
                 if !msg.images.isEmpty {
-                    var parts: [[String: Any]] = [["type": "text", "text": msg.content]]
+                    // An image sent without words: no empty text part.
+                    var parts: [[String: Any]] = msg.content.isEmpty ? [] : [["type": "text", "text": msg.content]]
                     for img in msg.images {
                         parts.append([
                             "type": "image_url",
