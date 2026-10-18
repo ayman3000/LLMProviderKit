@@ -295,7 +295,9 @@ public final class EffortCatalog: @unchecked Sendable {
         // clearly written from the same 400.
         let codex: [LLMReasoningEffort] = [.off, .minimal, .low, .medium, .high, .xhigh, .max]
         all.merge(rules("chatgptcodex", [
-            ("gpt-6-astra*", codex, [:]), ("gpt-5.6-sol*", codex, [:]),
+            ("gpt-6-astra*", codex, [:]), ("gpt-6-sol*", codex, [:]),
+            ("gpt-6-luna*", codex, [:]), ("gpt-6-1*", codex, [:]),
+            ("gpt-5.6-sol*", codex, [:]),
             ("gpt-5.6-terra*", codex, [:]), ("gpt-5.6-luna*", codex, [:]),
             ("gpt-daybreak-blue*", codex, [:]), ("gpt-daybreak-red*", codex, [:]),
             ("codex-auto-review*", codex, [:]),

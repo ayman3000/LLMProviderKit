@@ -154,3 +154,15 @@ struct OverrideRulesParsingTests {
         #expect(throws: (any Error).self) { try EffortCatalog.overrideRules(fromJSON: Data("{ nope".utf8)) }
     }
 }
+
+/// GPT-6 Sol and Luna reached the ChatGPT subscription (2026-10); they take
+/// the same levels as every other model on that endpoint.
+struct GPT6SubscriptionEffortTests {
+    @Test func solAndLunaHaveTheSubscriptionLevels() {
+        let catalog = EffortCatalog.shared
+        for model in ["gpt-6-sol", "gpt-6-luna", "gpt-6-sol-fast", "gpt-6-1-sol", "gpt-6-astra"] {
+            let v = catalog.vocabulary(provider: "chatgptCodex", model: model)
+            #expect(v?.supported == [.off, .minimal, .low, .medium, .high, .xhigh, .max], "\(model)")
+        }
+    }
+}
