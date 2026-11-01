@@ -124,8 +124,12 @@ public struct AnthropicProvider: LLMProvider {
                 }
                 msgDict["content"] = blocks
             }
-            // Plain text messages
+            // Plain text messages. An empty one is left out: the API refuses
+            // a message with empty content (the agent's "answer now" retry
+            // after a timed-out think adds an empty assistant turn), and the
+            // user turns on either side then merge into one.
             else {
+                guard !msg.content.isEmpty else { continue }
                 msgDict["content"] = msg.content
             }
 
