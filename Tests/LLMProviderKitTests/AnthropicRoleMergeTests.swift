@@ -133,4 +133,21 @@ struct AnthropicRoleMergeTests {
             #expect(keys.count == 4 && keys == keys.sorted())
         }
     }
+
+    // An empty assistant turn (the agent's retry after a timed-out think) is a
+    // 400 if sent; left out, the user turns around it merge into one.
+    @Test func anEmptyPlainAssistantTurnIsLeftOut() throws {
+        let msgs = [LLMMessage(role: .user, content: "Plan my week"),
+                    LLMMessage(role: .assistant, content: ""),
+                    LLMMessage(role: .user, content: "Give your answer now.")]
+        for b in try bodies(msgs) {
+            let messages = try #require(b.json["messages"] as? [[String: Any]])
+            #expect(roles(b.json) == ["user"], "stream=\(b.stream)")
+            let blocks = try #require(messages[0]["content"] as? [[String: Any]])
+            #expect(blocks.compactMap { $0["text"] as? String } == ["Plan my week", "Give your answer now."])
+            for m in messages {
+                if let text = m["content"] as? String { #expect(!text.isEmpty) }
+            }
+        }
+    }
 }
