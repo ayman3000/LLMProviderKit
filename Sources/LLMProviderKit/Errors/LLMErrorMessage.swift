@@ -46,7 +46,7 @@ extension LLMError {
     /// said nothing useful — its own sentence is always better than ours.
     static func cause(for code: Int) -> String {
         switch code {
-        case 401, 403: "The provider rejected your API key. Check it in Settings → Providers."
+        case 401, 403: "The provider rejected your API key — it may have expired or been revoked. Update it in Settings → Providers."
         case 404:      "That model isn't available on this account."
         case 408:      "The provider took too long to respond."
         case 429:      "You've hit the provider's rate limit. Wait a moment and try again."

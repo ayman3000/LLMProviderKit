@@ -548,8 +548,9 @@ struct ProviderTests {
     @Test func providerDefaultImplementationThrowsForModelListing() async throws {
         // OpenAI implements availableModels, so we test Anthropic's curated static list
         // and confirm the default protocol behavior for unknown providers via a custom stub.
-        let anthropic = AnthropicProvider(configuration: AnthropicProvider.anthropic(apiKey: "test"))
-        let models = try await anthropic.availableModels()
+        // No network: a fake key is refused (and reported) since 2026-11-02;
+        // the built-in list is what an unreachable endpoint falls back to.
+        let models = AnthropicProvider.curatedModels
         #expect(!models.isEmpty)
         #expect(models.first?.providerName == "anthropic")
     }
