@@ -411,8 +411,12 @@ public struct AnthropicProvider: LLMProvider {
             let (data, response) = try await urlSession.data(for: urlRequest)
             try Self.verifyHTTPResponse(response, data: data)
             live = try JSONDecoder().decode(AnthropicModelsResponse.self, from: data)
+        } catch LLMError.httpError(let code, let body) where code == 401 || code == 403 {
+            // A refused key (expired, revoked) is the user's to fix: say so,
+            // don't hide it behind the built-in list.
+            throw LLMError.httpError(code, body)
         } catch {
-            return Self.curatedModels
+            return Self.curatedModels   // unreachable: the built-in list
         }
 
         let curatedByID = Dictionary(uniqueKeysWithValues: Self.curatedModels.map { ($0.id, $0) })
@@ -613,6 +617,10 @@ private enum JSONValue: Decodable {
 
 public enum AnthropicModel {
     // Current models
+    public static let fable51 = "claude-fable-5-1"
+    public static let opus55 = "claude-opus-5-5"
+    public static let sonnet5 = "claude-sonnet-5"
+    public static let haiku55 = "claude-haiku-5-5"
     public static let fable5 = "claude-fable-5"
     public static let opus48 = "claude-opus-4-8"
     public static let opus47 = "claude-opus-4-7"
@@ -710,6 +718,42 @@ extension AnthropicProvider {
 
     private static let rawCuratedModels: [LLMModelInfo] = [
         LLMModelInfo(
+            id: AnthropicModel.fable51,
+            providerName: name,
+            displayName: "Claude Fable 5.1",
+            contextWindow: nil,   // not verified here; the app falls back to its own window
+            capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
+            id: AnthropicModel.opus55,
+            providerName: name,
+            displayName: "Claude Opus 5.5",
+            contextWindow: nil,   // not verified here; the app falls back to its own window
+            capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
+            id: AnthropicModel.sonnet5,
+            providerName: name,
+            displayName: "Claude Sonnet 5",
+            contextWindow: nil,   // not verified here; the app falls back to its own window
+            capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
+            id: AnthropicModel.haiku55,
+            providerName: name,
+            displayName: "Claude Haiku 5.5",
+            contextWindow: nil,   // not verified here; the app falls back to its own window
+            capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
+            categories: [.text, .vision, .multimodal],
+            releaseStage: .stable
+        ),
+        LLMModelInfo(
             id: AnthropicModel.fable5,
             providerName: name,
             displayName: "Claude Fable 5",
@@ -717,7 +761,6 @@ extension AnthropicProvider {
             capabilities: [.chat, .textGeneration, .streaming, .reasoning, .tools, .vision, .imageInput, .structuredOutput],
             categories: [.text, .vision, .multimodal],
             releaseStage: .stable,
-            notes: "Most capable Claude model in the curated list."
         ),
         LLMModelInfo(
             id: AnthropicModel.opus48,
